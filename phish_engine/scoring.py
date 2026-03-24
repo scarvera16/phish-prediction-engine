@@ -207,15 +207,42 @@ def compute_slot_affinity(
     return float(np.clip(song_w / max(max_w, 1e-6), 0.0, 1.0))
 
 
-def compute_frequency_score(total_plays: int, total_shows: int) -> float:
+def compute_frequency_score(
+    total_plays: int,
+    total_shows: int,
+    plays_30d: int = 0,
+    plays_90d: int = 0,
+    plays_365d: int = 0,
+    weights: ScoringWeights | None = None,
+) -> float:
     """
-    Baseline play-rate, normalised by the maximum across the catalog.
-    Keeps high-rotation songs (Chalk Dust, Sample) competitive.
+    Windowed play-rate blending recent activity with overall frequency.
+
+    Uses three windows (approximated by 30d/90d/365d counts) mixed via
+    freq_w10/w30/w90 sub-parameters.  Falls back to total play rate
+    if windowed counts are all zero.
     """
     if total_shows <= 0:
         return 0.0
-    rate = total_plays / total_shows
-    return float(np.clip(rate / 0.5, 0.0, 1.0))
+    w = weights or DEFAULT_WEIGHTS
+
+    # Compute rates for each window (normalize by window size in shows)
+    # Approximate: 30d ≈ 10 shows, 90d ≈ 30 shows, 365d ≈ 90 shows
+    rate_short  = plays_30d / max(min(total_shows, 10), 1)
+    rate_mid    = plays_90d / max(min(total_shows, 30), 1)
+    rate_long   = plays_365d / max(min(total_shows, 90), 1)
+
+    blended = (
+        w.freq_w10 * rate_short +
+        w.freq_w30 * rate_mid +
+        w.freq_w90 * rate_long
+    )
+
+    # If no windowed data, fall back to overall rate
+    if plays_30d == 0 and plays_90d == 0 and plays_365d == 0:
+        blended = total_plays / total_shows
+
+    return float(np.clip(blended / 0.5, 0.0, 1.0))
 
 
 def compute_venue_affinity(
@@ -299,7 +326,13 @@ def score_all_songs(
         rec   = compute_recency_score(f["current_gap_shows"], f["avg_gap_actual"], w_obj)
         gp    = compute_gap_pressure(f["current_gap_shows"], f["avg_gap_actual"], f["std_gap_actual"], w_obj)
         slot  = compute_slot_affinity(song_id, slot_type, songs_df, {col: max_slot_w})
-        freq  = compute_frequency_score(f["total_plays"], total_shows)
+        freq  = compute_frequency_score(
+            f["total_plays"], total_shows,
+            plays_30d=int(f.get("plays_30d", 0)),
+            plays_90d=int(f.get("plays_90d", 0)),
+            plays_365d=int(f.get("plays_365d", 0)),
+            weights=w_obj,
+        )
         venue = compute_venue_affinity(song_id, venue_type, songs_df)
         clust = compute_cluster_diversity_bonus(song_id, cluster_labels, already_chosen, songs_df)
 
@@ -346,7 +379,13 @@ def score_breakdown(
     rec   = compute_recency_score(f["current_gap_shows"], f["avg_gap_actual"], w_obj)
     gp    = compute_gap_pressure(f["current_gap_shows"], f["avg_gap_actual"], f["std_gap_actual"], w_obj)
     slot  = compute_slot_affinity(song_id, slot_type, songs_df, {col: max_slot_w})
-    freq  = compute_frequency_score(f["total_plays"], total_shows)
+    freq  = compute_frequency_score(
+        f["total_plays"], total_shows,
+        plays_30d=int(f.get("plays_30d", 0)),
+        plays_90d=int(f.get("plays_90d", 0)),
+        plays_365d=int(f.get("plays_365d", 0)),
+        weights=w_obj,
+    )
     venue = compute_venue_affinity(song_id, venue_type, songs_df)
     clust = compute_cluster_diversity_bonus(song_id, cluster_labels, already_chosen, songs_df)
 

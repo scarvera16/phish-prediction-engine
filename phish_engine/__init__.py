@@ -32,4 +32,5 @@ from .set_builder import build_setlist, SetConfig, format_setlist
 from .song_model import SongModel, build_song_model, score_song_for_slot
 from .data.songs import get_songs_df, SONG_PAIRS
 from .data.mock_data import generate_show_history
+from .data.real_data import load_real_data
 from .backtest.validator import run_backtest
