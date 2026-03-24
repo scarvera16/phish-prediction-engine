@@ -236,11 +236,13 @@ def predict_multi_night_run(
             combined[sid] = max(combined.get(sid, 0), s1_scores[sid])
         sorted_combined = sorted(combined.items(), key=lambda x: -x[1])
 
-        # Reserve enough top songs for ~7 per weekend across all slots
-        n_top = min(n_weekends * 7, len(sorted_combined))
+        # Reserve top songs: 10 per weekend for 3 weekends = 30 total
+        # This ensures each weekend gets marquee S1 openers, S2 jam vehicles, etc.
+        songs_per_weekend = 10
+        n_top = min(n_weekends * songs_per_weekend, len(sorted_combined))
         top_songs = [sid for sid, _ in sorted_combined[:n_top]]
 
-        # Round-robin assign: song ranked #1 → Wk1, #2 → Wk2, #3 → Wk3, etc.
+        # Round-robin assign: #1 → Wk1, #2 → Wk2, #3 → Wk3, #4 → Wk1, etc.
         for rank, sid in enumerate(top_songs):
             weekend_idx = rank % n_weekends
             weekend_reserves.setdefault(weekends[weekend_idx][0], set()).add(sid)
