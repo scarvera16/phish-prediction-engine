@@ -25,7 +25,9 @@ class TestFullPipeline:
         X_scaled, scaler = build_cluster_feature_matrix(songs_df, feat_df)
         kmeans, labels, names = train_song_clusters(X_scaled, n_clusters=8, seed=42)
 
-        dates = [pd.Timestamp(f"2026-04-{d}") for d in [17, 18, 19, 20]]
+        # Mock catalog has ~49 songs; with hard run exclusions (20 songs/night),
+        # only 2 nights can be fully populated
+        dates = [pd.Timestamp(f"2026-04-{d}") for d in [17, 18]]
         preds = predict_multi_night_run(
             show_dates=dates,
             venue_type="sphere",
@@ -35,7 +37,7 @@ class TestFullPipeline:
             cluster_labels=labels,
         )
 
-        assert len(preds) == 4
+        assert len(preds) == 2
         for pred in preds:
             total_songs = len(pred["set1"]) + len(pred["set2"]) + len(pred["encore"])
             assert total_songs >= 10

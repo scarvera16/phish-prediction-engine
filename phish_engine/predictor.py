@@ -207,25 +207,13 @@ def predict_multi_night_run(
         feat_df = compute_all_features(songs_df, shows_df, appearances_df, cutoff)
         total_shows = int(shows_df[shows_df["date"] <= cutoff]["show_num"].max() or 0)
 
-        hard_exclusions = set()
-        soft_exclusions = {}
+        # Hard-exclude ALL songs from previous nights in this run.
+        # Real data shows Phish virtually never repeats within a same-venue run.
+        hard_exclusions: set[str] = set()
+        soft_exclusions: dict[str, float] = {}
 
         for lookback in range(1, len(show_song_history) + 1):
-            past_songs = show_song_history[-lookback]
-            if lookback <= 2:
-                hard_exclusions |= past_songs
-            elif lookback == 3:
-                for sid in past_songs:
-                    if sid not in hard_exclusions:
-                        soft_exclusions[sid] = min(soft_exclusions.get(sid, 1.0), 0.15)
-            elif lookback == 4:
-                for sid in past_songs:
-                    if sid not in hard_exclusions:
-                        soft_exclusions[sid] = min(soft_exclusions.get(sid, 1.0), 0.40)
-            else:
-                for sid in past_songs:
-                    if sid not in hard_exclusions:
-                        soft_exclusions[sid] = min(soft_exclusions.get(sid, 1.0), 0.70)
+            hard_exclusions |= show_song_history[-lookback]
 
         pred = predict_show(
             show_date=show_date,
