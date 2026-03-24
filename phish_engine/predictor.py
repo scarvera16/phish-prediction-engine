@@ -223,16 +223,27 @@ def predict_multi_night_run(
             "s2_body", songs_df, feat_df_init, cluster_labels,
             [], set(), venue_type, total_init, weights,
         )
-        # Top songs: enough for ~6 per weekend (S2 opener + closers + key S1 slots)
-        n_top = min(n_weekends * 6, len(initial_scores))
-        top_songs = list(initial_scores.head(n_top).index)
+        # Also score S1 openers and encore to catch top songs across all slots
+        s1_scores = score_all_songs(
+            "show_opener", songs_df, feat_df_init, cluster_labels,
+            [], set(), venue_type, total_init, weights,
+        )
+        # Merge top songs from both S1 and S2 rankings
+        combined = {}
+        for sid in initial_scores.index:
+            combined[sid] = max(combined.get(sid, 0), initial_scores[sid])
+        for sid in s1_scores.index:
+            combined[sid] = max(combined.get(sid, 0), s1_scores[sid])
+        sorted_combined = sorted(combined.items(), key=lambda x: -x[1])
 
-        # Round-robin assign top songs to weekends
+        # Reserve enough top songs for ~7 per weekend across all slots
+        n_top = min(n_weekends * 7, len(sorted_combined))
+        top_songs = [sid for sid, _ in sorted_combined[:n_top]]
+
+        # Round-robin assign: song ranked #1 → Wk1, #2 → Wk2, #3 → Wk3, etc.
         for rank, sid in enumerate(top_songs):
             weekend_idx = rank % n_weekends
-            # Reserve this song for the first show of that weekend
-            first_show_of_weekend = weekends[weekend_idx][0]
-            weekend_reserves.setdefault(first_show_of_weekend, set()).add(sid)
+            weekend_reserves.setdefault(weekends[weekend_idx][0], set()).add(sid)
 
     # ── Predict each show ──
     show_song_history: list[set[str]] = []
@@ -248,23 +259,18 @@ def predict_multi_night_run(
         for lookback in range(1, len(show_song_history) + 1):
             hard_exclusions |= show_song_history[-lookback]
 
-        # Soft-penalize songs reserved for other weekends
+        # Hard-exclude songs reserved for other weekends so top songs
+        # get distributed evenly instead of all landing on weekend 1
         soft_exclusions: dict[str, float] = {}
+        current_weekend = next(
+            wi for wi, shows in enumerate(weekends) if i in shows
+        )
         for other_show_idx, reserved in weekend_reserves.items():
-            if other_show_idx != i:
-                # Find which weekend the current show belongs to
-                current_weekend = next(
-                    wi for wi, shows in enumerate(weekends) if i in shows
-                )
-                reserve_weekend = next(
-                    wi for wi, shows in enumerate(weekends) if other_show_idx in shows
-                )
-                if current_weekend != reserve_weekend:
-                    for sid in reserved:
-                        if sid not in hard_exclusions:
-                            soft_exclusions[sid] = min(
-                                soft_exclusions.get(sid, 1.0), 0.15
-                            )
+            reserve_weekend = next(
+                wi for wi, shows in enumerate(weekends) if other_show_idx in shows
+            )
+            if current_weekend != reserve_weekend:
+                hard_exclusions |= reserved
 
         pred = predict_show(
             show_date=show_date,
