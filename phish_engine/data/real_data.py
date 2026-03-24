@@ -133,6 +133,24 @@ def _load_appearances(data_dir: Path, shows_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _load_phishin_durations(data_dir: Path) -> dict[str, list[float]]:
+    """Load per-song duration lists from Phish.in track cache."""
+    phishin_path = data_dir / "phishin_tracks.json"
+    if not phishin_path.exists():
+        return {}
+    with open(phishin_path) as f:
+        data = json.load(f)
+    song_durations: dict[str, list[float]] = {}
+    for show in data.values():
+        for track in show.get("tracks", []):
+            slug = track.get("slug", "")
+            sid = _pn_slug_to_song_id(slug)
+            dur_min = track.get("duration", 0) / 60000  # ms → minutes
+            if dur_min > 0.5:
+                song_durations.setdefault(sid, []).append(dur_min)
+    return song_durations
+
+
 def _build_songs_df(
     data_dir: Path,
     appearances_df: pd.DataFrame,
@@ -140,6 +158,8 @@ def _build_songs_df(
     min_plays: int,
 ) -> pd.DataFrame:
     """Build songs_df from real data, indexed by song_id."""
+    _phishin_durations = _load_phishin_durations(data_dir)
+
     # Load Phish.net song catalog for metadata
     with open(data_dir / "songs.json") as f:
         raw_songs = json.load(f)
@@ -204,11 +224,15 @@ def _build_songs_df(
         jam_score = float(np.clip(jam_rate, 0.0, 1.0))
 
         # ── Duration: median of last 20 performances with tracktime ──
-        # Median is more robust than mean against occasional epic jams.
-        # Using recent performances avoids bias from older sparse data.
-        recent_app = song_app.sort_values("show_num", ascending=False)
-        valid_durations = recent_app[recent_app["duration_min"] > 0]["duration_min"].head(20)
-        avg_dur = float(valid_durations.median()) if len(valid_durations) > 0 else 5.0
+        # Prefer Phish.in data (passed via _phishin_durations) over Phish.net tracktime
+        phishin_durs = _phishin_durations.get(sid, [])
+        if phishin_durs:
+            recent_durs = phishin_durs[-20:]
+            avg_dur = float(np.median(recent_durs))
+        else:
+            recent_app = song_app.sort_values("show_num", ascending=False)
+            valid_durations = recent_app[recent_app["duration_min"] > 0]["duration_min"].head(20)
+            avg_dur = float(valid_durations.median()) if len(valid_durations) > 0 else 5.0
 
         # ── Energy heuristic (jam-heavy + loud songs get high energy) ──
         energy = SPHERE_AFFINITY.get(sid, 0.5)  # use sphere as proxy if no override
