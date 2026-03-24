@@ -191,14 +191,50 @@ def predict_multi_night_run(
     """
     Predict a full multi-night run with rolling exclusion windows.
 
-    Exclusion strategy (mirrors real Phish multi-night behaviour):
-      - Songs from previous 1-2 shows: HARD excluded
-      - Songs from 3 shows ago: heavy soft penalty (0.15x)
-      - Songs from 4 shows ago: moderate penalty (0.40x)
-      - Songs from 5+ shows ago: mild penalty (0.70x)
+    For residencies with multi-weekend structure, distributes top songs
+    evenly across weekends so each weekend gets its share of crowd favorites.
+    All songs from prior nights in the run are hard-excluded (zero repeats).
     """
     from .features import compute_all_features
 
+    n_shows = len(show_dates)
+
+    # ── Detect weekend structure ──
+    # Group shows into weekends (gap of 3+ days = new weekend)
+    weekends: list[list[int]] = [[0]]  # list of show indices per weekend
+    for i in range(1, n_shows):
+        gap_days = (show_dates[i] - show_dates[i - 1]).days
+        if gap_days >= 3:
+            weekends.append([i])
+        else:
+            weekends[-1].append(i)
+
+    n_weekends = len(weekends)
+
+    # ── Pre-assign top songs to weekends ──
+    # Score all songs once to find the top candidates, then round-robin
+    # assign them so each weekend gets an equal share of favorites.
+    weekend_reserves: dict[int, set[str]] = {}  # show_index -> reserved songs
+    if n_weekends >= 2:
+        cutoff = show_dates[0] - pd.Timedelta(days=1)
+        feat_df_init = compute_all_features(songs_df, shows_df, appearances_df, cutoff)
+        total_init = int(shows_df[shows_df["date"] <= cutoff]["show_num"].max() or 0)
+        initial_scores = score_all_songs(
+            "s2_body", songs_df, feat_df_init, cluster_labels,
+            [], set(), venue_type, total_init, weights,
+        )
+        # Top songs: enough for ~6 per weekend (S2 opener + closers + key S1 slots)
+        n_top = min(n_weekends * 6, len(initial_scores))
+        top_songs = list(initial_scores.head(n_top).index)
+
+        # Round-robin assign top songs to weekends
+        for rank, sid in enumerate(top_songs):
+            weekend_idx = rank % n_weekends
+            # Reserve this song for the first show of that weekend
+            first_show_of_weekend = weekends[weekend_idx][0]
+            weekend_reserves.setdefault(first_show_of_weekend, set()).add(sid)
+
+    # ── Predict each show ──
     show_song_history: list[set[str]] = []
     predictions = []
 
@@ -208,12 +244,27 @@ def predict_multi_night_run(
         total_shows = int(shows_df[shows_df["date"] <= cutoff]["show_num"].max() or 0)
 
         # Hard-exclude ALL songs from previous nights in this run.
-        # Real data shows Phish virtually never repeats within a same-venue run.
         hard_exclusions: set[str] = set()
-        soft_exclusions: dict[str, float] = {}
-
         for lookback in range(1, len(show_song_history) + 1):
             hard_exclusions |= show_song_history[-lookback]
+
+        # Soft-penalize songs reserved for other weekends
+        soft_exclusions: dict[str, float] = {}
+        for other_show_idx, reserved in weekend_reserves.items():
+            if other_show_idx != i:
+                # Find which weekend the current show belongs to
+                current_weekend = next(
+                    wi for wi, shows in enumerate(weekends) if i in shows
+                )
+                reserve_weekend = next(
+                    wi for wi, shows in enumerate(weekends) if other_show_idx in shows
+                )
+                if current_weekend != reserve_weekend:
+                    for sid in reserved:
+                        if sid not in hard_exclusions:
+                            soft_exclusions[sid] = min(
+                                soft_exclusions.get(sid, 1.0), 0.15
+                            )
 
         pred = predict_show(
             show_date=show_date,
