@@ -8,6 +8,7 @@ Produces ~280 shows from January 2019 through December 2025, with realistic:
   - No song repeats within a multi-night run (soft constraint via penalty)
   - Special "Sphere 2024" shows included as training data
 """
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
