@@ -203,9 +203,12 @@ def _build_songs_df(
             jam_rate = 0.0
         jam_score = float(np.clip(jam_rate, 0.0, 1.0))
 
-        # ── Duration ──
-        valid_durations = song_app[song_app["duration_min"] > 0]["duration_min"]
-        avg_dur = float(valid_durations.mean()) if len(valid_durations) > 0 else 5.0
+        # ── Duration: median of last 20 performances with tracktime ──
+        # Median is more robust than mean against occasional epic jams.
+        # Using recent performances avoids bias from older sparse data.
+        recent_app = song_app.sort_values("show_num", ascending=False)
+        valid_durations = recent_app[recent_app["duration_min"] > 0]["duration_min"].head(20)
+        avg_dur = float(valid_durations.median()) if len(valid_durations) > 0 else 5.0
 
         # ── Energy heuristic (jam-heavy + loud songs get high energy) ──
         energy = SPHERE_AFFINITY.get(sid, 0.5)  # use sphere as proxy if no override
