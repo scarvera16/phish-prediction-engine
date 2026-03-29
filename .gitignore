@@ -15,3 +15,10 @@ env/
 htmlcov/
 *.so
 .DS_Store
+
+# Secrets / API keys
+.env.*
+*.key
+*.pem
+secrets.*
+config.local.*
