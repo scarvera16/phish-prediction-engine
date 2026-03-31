@@ -1,0 +1,23 @@
+{
+  "weights": {
+    "recency": 0.05,
+    "frequency": 0.4,
+    "gap_pressure": 0.05,
+    "slot_affinity": 0.35,
+    "venue_affinity": 0.1,
+    "cluster": 0.05
+  },
+  "sub_params": {
+    "recency_decay_rate": 3.0,
+    "freq_w10": 0.25,
+    "freq_w30": 0.45,
+    "freq_w90": 0.3,
+    "gap_lognormal_sigma": 0.45
+  },
+  "set_sizes": {
+    "s1": 9,
+    "s2": 7,
+    "enc": 2
+  },
+  "cross_val_hit_rate": 0.3663
+}

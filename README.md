@@ -1,57 +1,94 @@
-# phish-prediction-engine
+# Phish Prediction Engine v2
 
-ML-powered setlist prediction engine for Phish shows.
+ML-powered setlist prediction engine for Phish concerts. Uses historical setlist data from phish.net to predict upcoming shows with a multi-component scoring system.
+
+## Features
+
+- **6-component scoring**: recency, frequency (multi-window), gap pressure (log-normal), slot affinity, venue affinity, cluster diversity
+- **Multi-night run prediction**: no-repeat constraint, weekend-aware distribution, song pair sequencing
+- **K-means clustering**: silhouette-based k selection, PCA visualization, semantic cluster naming
+- **Cross-validation**: backtest against 7 held-out multi-night runs (36.6% hit rate)
+- **Data enrichment**: Phish.in jamchart tags, venue history, transition mining, style derivation
 
 ## Installation
 
 ```bash
-pip install -e ".[dev]"
+pip install -e .
 ```
 
 ## Quick Start
 
 ```python
-from phish_engine import (
-    get_songs_df, generate_show_history,
-    compute_all_features, build_cluster_feature_matrix,
-    train_song_clusters, predict_multi_night_run,
-)
-import pandas as pd
+from phish_engine.data.real_data import load_real_data
+from phish_engine.features import compute_all_features
+from phish_engine.clustering import cluster_songs
+from phish_engine.predictor import predict_multi_night_run
+from phish_engine.scoring import ScoringWeights
 
-# Load catalog and generate mock history
-songs_df = get_songs_df()
-shows_df, appearances_df = generate_show_history(seed=42)
+# Load data (requires cached phish.net data in data/)
+songs_df, shows_df, appearances_df = load_real_data("data/", min_plays=3, start_year=2019)
 
-# Compute features and clusters
-cutoff = shows_df["date"].max() - pd.Timedelta(days=1)
-feat_df = compute_all_features(songs_df, shows_df, appearances_df, cutoff)
-X_scaled, scaler = build_cluster_feature_matrix(songs_df, feat_df)
-kmeans, labels, names = train_song_clusters(X_scaled, n_clusters=8)
+# Cluster songs
+songs_with_clusters, *_ = cluster_songs(songs_df, appearances_df)
+cluster_labels = dict(zip(songs_with_clusters.index, songs_with_clusters["cluster_id"]))
 
-# Predict 4-night run
-dates = [pd.Timestamp(f"2026-04-{d}") for d in [17, 18, 19, 20]]
+# Predict a run
 predictions = predict_multi_night_run(
-    show_dates=dates,
+    show_dates=[pd.Timestamp("2026-04-16"), ...],
     venue_type="sphere",
     songs_df=songs_df,
     shows_df=shows_df,
     appearances_df=appearances_df,
-    cluster_labels=labels,
+    cluster_labels=cluster_labels,
+    weights=ScoringWeights(),  # uses optimized defaults
 )
 ```
 
-## Components
+## Data Setup
 
-- **scoring** - 6-component composite scoring with tunable `ScoringWeights`
-- **features** - Dynamic feature engineering from show history
-- **clustering** - K-Means with silhouette-based k selection
-- **predictor** - Multi-night run prediction with rolling exclusions
-- **set_builder** - Energy-arc set construction with segue chains
-- **song_model** - Bayesian song probability model from real Phish.net data
-- **backtest** - Validation framework against held-out tours
+Fetch data from phish.net (requires API key):
+```bash
+PHISHNET_API_KEY=your_key python fetch_show_data.py
+```
 
-## Running Tests
+Or copy cached JSON files into `data/`:
+- `shows.json` — show metadata
+- `setlists.json` — full setlist entries
+- `songs.json` — song catalog
+
+## Export for Frontend
+
+Generate `prediction_data.json` for use by any frontend:
 
 ```bash
-pytest
+python export_json.py
 ```
+
+This outputs a single JSON file with predicted setlists, song catalog, clusters, bustout candidates, and backtest results.
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `export_json.py` | Full pipeline → JSON output |
+| `main.py` | CLI runner with terminal output |
+| `scripts/enrich_data.py` | Enrich data from Phish.in tags + venue history |
+| `scripts/subparam_optimize.py` | Weight optimization via cross-validation |
+| `scripts/rebuild_predictions.py` | Rebuild with current weights |
+
+## Scoring Weights (Optimized)
+
+| Weight | Value | Description |
+|--------|-------|-------------|
+| frequency | 0.40 | Multi-window play frequency (w10=0.25, w30=0.45, w90=0.30) |
+| slot_affinity | 0.35 | How well song fits opener/closer/body/encore slots |
+| venue_affinity | 0.10 | Indoor/outdoor/sphere venue preference |
+| recency | 0.05 | Recency decay (rate=3.0) |
+| gap_pressure | 0.05 | Log-normal gap pressure (sigma=0.45) |
+| cluster | 0.05 | Cluster diversity bonus |
+
+Cross-validated across 7 multi-night runs: **36.6% song-level hit rate**.
+
+## License
+
+MIT
