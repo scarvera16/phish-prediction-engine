@@ -15,6 +15,11 @@ import numpy as np
 import pandas as pd
 
 from .manual_overrides import SLUG_ALIASES, SPHERE_AFFINITY, STYLE_TAGS
+try:
+    from .manual_overrides import JAM_SCORES, ENERGY_SCORES
+except ImportError:
+    JAM_SCORES = {}
+    ENERGY_SCORES = {}
 from .venue_map import classify_venue
 
 # ── slug helpers ──────────────────────────────────────────────────────────────
@@ -216,12 +221,14 @@ def _build_songs_df(
         else:
             avg_gap = float(max_show_num)  # never-repeat fallback
 
-        # ── Jam score from jamchart rate ──
-        if "isjamchart" in song_app.columns:
+        # ── Jam score: prefer enriched Phish.in data, fall back to phish.net ──
+        if sid in JAM_SCORES:
+            jam_score = JAM_SCORES[sid]
+        elif "isjamchart" in song_app.columns:
             jam_rate = song_app["isjamchart"].sum() / max(n_plays, 1)
+            jam_score = float(np.clip(jam_rate, 0.0, 1.0))
         else:
-            jam_rate = 0.0
-        jam_score = float(np.clip(jam_rate, 0.0, 1.0))
+            jam_score = 0.0
 
         # ── Duration: median of last 20 performances with tracktime ──
         # Prefer Phish.in data (passed via _phishin_durations) over Phish.net tracktime
@@ -234,11 +241,14 @@ def _build_songs_df(
             valid_durations = recent_app[recent_app["duration_min"] > 0]["duration_min"].head(20)
             avg_dur = float(valid_durations.median()) if len(valid_durations) > 0 else 5.0
 
-        # ── Energy heuristic (jam-heavy + loud songs get high energy) ──
-        energy = SPHERE_AFFINITY.get(sid, 0.5)  # use sphere as proxy if no override
-        if jam_score > 0.3:
-            energy = max(energy, 0.7 + jam_score * 0.2)
-        energy = float(np.clip(energy, 0.0, 1.0))
+        # ── Energy: prefer enriched scores, fall back to heuristic ──
+        if sid in ENERGY_SCORES:
+            energy = ENERGY_SCORES[sid]
+        else:
+            energy = SPHERE_AFFINITY.get(sid, 0.5)
+            if jam_score > 0.3:
+                energy = max(energy, 0.7 + jam_score * 0.2)
+            energy = float(np.clip(energy, 0.0, 1.0))
 
         records.append({
             "song_id": sid,
