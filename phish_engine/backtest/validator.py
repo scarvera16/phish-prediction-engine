@@ -101,11 +101,21 @@ def run_backtest(
 
     per_show_metrics = []
     run_exclusions: set[str] = set()
+    prev_venue: str | None = None
 
     for _, row in val_shows.iterrows():
         show_id   = row["show_id"]
         show_date = row["date"]
         vtype     = row["venue_type"]
+
+        # No-repeat is scoped to the *stand* (a multi-night stop at one venue),
+        # not the whole tour. Phish never repeats within a stand but replays
+        # ~58% of songs at later stops, so exclusions reset at each new venue.
+        # For a single-venue run (a residency, an MSG NYE stand) this never
+        # fires and behaviour matches the old tour-wide accumulation.
+        if row["venue_name"] != prev_venue:
+            run_exclusions = set()
+        prev_venue = row["venue_name"]
 
         cutoff = show_date - pd.Timedelta(days=1)
         feat_df = compute_all_features(songs_df, train_shows, appearances_df, cutoff)
