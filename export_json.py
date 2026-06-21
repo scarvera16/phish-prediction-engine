@@ -20,6 +20,7 @@ from collections import Counter
 
 from phish_engine.data.real_data import load_real_data, _pn_slug_to_song_id
 from phish_engine.data.manual_overrides import SONG_PAIRS
+from phish_engine.architecture import build_architecture_table
 from phish_engine.features import compute_all_features
 from phish_engine.clustering import cluster_songs
 from phish_engine.predictor import predict_multi_night_run
@@ -230,6 +231,9 @@ def main():
     except Exception as e:
         print(f"  Warning: Could not compute position stats: {e}")
 
+    # Conditional Type-II architecture layer (venue/era/slot)
+    arch_table = build_architecture_table(songs_df, shows_df, appearances_df, "data/")
+
     # Song catalog with cluster + feature data
     pca_index = list(songs_with_clusters.index)
     catalog = {}
@@ -238,6 +242,7 @@ def main():
         f = feat_df.loc[sid]
         pca_idx = pca_index.index(sid) if sid in pca_index else 0
         nick = nicknames.get(sid)
+        arch_block = arch_table.song_block(sid)
         catalog[sid] = {
             "name":            nick if nick else s["name"],
             "fullName":        s["name"] if nick else None,
@@ -258,6 +263,7 @@ def main():
             "pca_x":           round(float(pca_coords[pca_idx, 0]), 3),
             "pca_y":           round(float(pca_coords[pca_idx, 1]), 3),
             "position_stats":  position_stats.get(sid, {"s1_opener": 0, "s1_closer": 0, "s2_opener": 0, "s2_closer": 0, "encore_rate": 0}),
+            **({"arch": arch_block} if arch_block else {}),
         }
 
     # Cluster definitions
