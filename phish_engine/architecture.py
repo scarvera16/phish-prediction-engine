@@ -214,7 +214,20 @@ class ArchitectureTable:
                 ])
         if not venues:
             return None
-        return {"t2": round(g.p, 2), "t2s2": round(s2.p, 2), "venues": venues}
+        block = {"t2": round(g.p, 2), "t2s2": round(s2.p, 2), "venues": venues}
+
+        # Era trend: song-wide (all slots) so the "jammier now?" comparison has
+        # enough samples; only a real comparison if BOTH eras are well-sampled.
+        # (The cache starts in 2019, so "3.0" here is late-3.0 only; songs that
+        # debuted in 4.0 simply have no 3.0 cell and get no era row.)
+        ec = self.era_contrast(song_id)
+        eras = [
+            [r["era"], round(float(r["type_ii_likelihood"]), 2), int(r["n_plays"])]
+            for _, r in ec.iterrows() if int(r["n_plays"]) >= min_cell_n
+        ]
+        if len(eras) == 2:
+            block["eras"] = sorted(eras, key=lambda e: e[0])  # 3.0 then 4.0
+        return block
 
     def venue_contrast(self, song_id: str, slot: str = "set2") -> pd.DataFrame:
         """Type-II likelihood for a song/slot across venue types.
@@ -236,6 +249,24 @@ class ArchitectureTable:
         return pd.DataFrame(rows).sort_values(
             "type_ii_likelihood", ascending=False
         ).reset_index(drop=True)
+
+    def era_contrast(self, song_id: str, slot: str | None = None) -> pd.DataFrame:
+        """Type-II likelihood across performance eras (song-wide by default).
+
+        Surfaces the "is this song jammier now than it used to be" trend.
+        One row per era present in the data, sorted by era label.
+        """
+        eras = sorted(self._ev["era"].unique())
+        rows = []
+        for era in eras:
+            est = self.estimate(song_id, slot=slot, era=era)
+            rows.append({
+                "era": era,
+                "type_ii_likelihood": est.p,
+                "n_plays": est.n,
+                "raw_rate": est.raw_rate,
+            })
+        return pd.DataFrame(rows)
 
 
 # ── builder ───────────────────────────────────────────────────────────────────
