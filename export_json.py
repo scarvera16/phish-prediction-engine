@@ -20,6 +20,8 @@ from collections import Counter
 
 from phish_engine.data.real_data import load_real_data, _pn_slug_to_song_id
 from phish_engine.data.manual_overrides import SONG_PAIRS
+from phish_engine.data.venue_map import classify_venue
+from phish_engine.stands import stand_positions
 from phish_engine.architecture import build_architecture_table
 from phish_engine.features import compute_all_features
 from phish_engine.clustering import cluster_songs
@@ -27,17 +29,36 @@ from phish_engine.predictor import predict_multi_night_run
 from phish_engine.backtest.validator import run_backtest
 from phish_engine.scoring import ScoringWeights
 
-# Sphere dates from main.py
-SPHERE_DATES = [
-    pd.Timestamp("2026-04-16"),  # Thu - Night 1
-    pd.Timestamp("2026-04-17"),  # Fri - Night 2
-    pd.Timestamp("2026-04-18"),  # Sat - Night 3
-    pd.Timestamp("2026-04-23"),  # Thu - Night 4
-    pd.Timestamp("2026-04-24"),  # Fri - Night 5
-    pd.Timestamp("2026-04-25"),  # Sat - Night 6
-    pd.Timestamp("2026-04-30"),  # Thu - Night 7
-    pd.Timestamp("2026-05-01"),  # Fri - Night 8
-    pd.Timestamp("2026-05-02"),  # Sat - Night 9
+# Training cache lives in the package; no separate data/ copy needed.
+DATA_DIR = "phish_engine/data/cache"
+
+# Summer 2026 tour — (date, venue). Source: phish.net announced shows.
+# Venue types are derived via classify_venue; stand structure (consecutive
+# same-venue shows) is detected automatically by the predictor. This run is
+# 9 stands: a 5-night MSG, two 3-night sheds (Ruoff/Deer Creek, Dick's), four
+# 2-nighters, and two one-offs.
+SUMMER_2026 = [
+    ("2026-07-07", "Kohl Center"),
+    ("2026-07-08", "Kohl Center"),
+    ("2026-07-10", "Ruoff Music Center"),
+    ("2026-07-11", "Ruoff Music Center"),
+    ("2026-07-12", "Ruoff Music Center"),
+    ("2026-07-14", "Enmarket Arena"),
+    ("2026-07-15", "Enmarket Arena"),
+    ("2026-07-17", "Coastal Credit Union Music Park at Walnut Creek"),
+    ("2026-07-18", "Merriweather Post Pavilion"),
+    ("2026-07-19", "Merriweather Post Pavilion"),
+    ("2026-07-21", "Empower Federal Credit Union Amphitheater at Lakeview"),
+    ("2026-07-22", "Madison Square Garden"),
+    ("2026-07-24", "Madison Square Garden"),
+    ("2026-07-25", "Madison Square Garden"),
+    ("2026-07-27", "Madison Square Garden"),
+    ("2026-07-29", "Madison Square Garden"),
+    ("2026-07-31", "Fenway Park"),
+    ("2026-08-01", "Fenway Park"),
+    ("2026-09-04", "Dick's Sporting Goods Park"),
+    ("2026-09-05", "Dick's Sporting Goods Park"),
+    ("2026-09-06", "Dick's Sporting Goods Park"),
 ]
 
 WEIGHTS = ScoringWeights(
@@ -128,18 +149,27 @@ def _name_clusters(songs_with_clusters: pd.DataFrame) -> dict:
 
 
 def main():
+    # ── 0. Tour schedule ───────────────────────────────────────────────────────
+    show_dates  = [pd.Timestamp(d) for d, _ in SUMMER_2026]
+    show_venues = [v for _, v in SUMMER_2026]
+    venue_types = [classify_venue(v) for v in show_venues]
+    positions   = stand_positions(show_venues)
+    as_of_date  = show_dates[0] - pd.Timedelta(days=1)
+
     # ── 1. Load real Phish.net data ────────────────────────────────────────────
     songs_df, shows_df, appearances_df = load_real_data(
-        data_dir="data/",
+        data_dir=DATA_DIR,
         min_plays=3,
         start_year=2019,
     )
     print(f"  Loaded: {len(shows_df)} shows, {len(songs_df)} songs, {len(appearances_df)} appearances")
+    print(f"  Predicting {len(show_dates)} shows / {len(set(p.stand_id for p in positions))} stands, "
+          f"as of {as_of_date.date()}")
 
     # ── 2. Feature engineering ────────────────────────────────────────────────
     feat_df = compute_all_features(
         songs_df, shows_df, appearances_df,
-        as_of_date=pd.Timestamp("2026-04-15"),
+        as_of_date=as_of_date,
     )
 
     # ── 3. Clustering ─────────────────────────────────────────────────────────
@@ -153,21 +183,23 @@ def main():
     # Use PCA coords from cluster_songs (already computed)
     pca_coords = pca_coords_raw.values if hasattr(pca_coords_raw, 'values') else pca_coords_raw
 
-    # ── 4. Predict 9 shows ────────────────────────────────────────────────────
+    # ── 4. Predict the tour ────────────────────────────────────────────────────
     predictions = predict_multi_night_run(
-        show_dates=SPHERE_DATES,
-        venue_type="sphere",
+        show_dates=show_dates,
+        venue_type=venue_types[0],
         songs_df=songs_df,
         shows_df=shows_df,
         appearances_df=appearances_df,
         cluster_labels=cluster_labels,
         weights=WEIGHTS,
+        show_venues=show_venues,
+        venue_types=venue_types,
     )
 
     # ── 5. Build export structure ─────────────────────────────────────────────
 
     # Load all-time play counts from Phish.net songs.json
-    with open("data/songs.json") as _f:
+    with open(f"{DATA_DIR}/songs.json") as _f:
         _raw_songs = json.load(_f)
     alltime_plays = {}
     nicknames = {}
@@ -181,7 +213,7 @@ def main():
     # Pre-compute set position stats (opener/closer) from cached setlist data
     position_stats = {}
     try:
-        with open("data/setlists.json") as _sf:
+        with open(f"{DATA_DIR}/setlists.json") as _sf:
             _setlists_raw = json.load(_sf)
         # setlists.json is dict keyed by date → list of entries
         from collections import defaultdict
@@ -232,7 +264,7 @@ def main():
         print(f"  Warning: Could not compute position stats: {e}")
 
     # Conditional Type-II architecture layer (venue/era/slot)
-    arch_table = build_architecture_table(songs_df, shows_df, appearances_df, "data/")
+    arch_table = build_architecture_table(songs_df, shows_df, appearances_df, DATA_DIR)
 
     # Song catalog with cluster + feature data
     pca_index = list(songs_with_clusters.index)
@@ -280,11 +312,17 @@ def main():
     shows_export = []
     run_exclusions_so_far = set()
     for pred in predictions:
+        idx = pred["show_num"] - 1
+        pos = positions[idx]
         show_data = {
             "show_num":  pred["show_num"],
             "date":      pred["date"].strftime("%Y-%m-%d"),
             "day_name":  pred["date"].strftime("%A"),
             "date_short": pred["date"].strftime("%b %-d"),
+            "venue":      show_venues[idx],
+            "venue_type": venue_types[idx],
+            "stand_night": pos.night,
+            "stand_size":  pos.size,
             "sets": {},
             "run_exclusions_before": sorted(list(run_exclusions_so_far)),
         }
@@ -384,8 +422,8 @@ def main():
     # ── 7. Assemble final JSON ────────────────────────────────────────────────
     export = {
         "meta": {
-            "venue": "Sphere, Las Vegas",
-            "dates": f"{SPHERE_DATES[0].strftime('%b %-d')} – {SPHERE_DATES[-1].strftime('%b %-d, %Y')}",
+            "venue": "Summer Tour 2026",
+            "dates": f"{show_dates[0].strftime('%b %-d')} – {show_dates[-1].strftime('%b %-d, %Y')}",
             "total_catalog": len(songs_df),
             "total_predicted_unique": len(predicted_songs),
             "scoring_weights": WEIGHTS.main_weights_normalized(),
