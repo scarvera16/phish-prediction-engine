@@ -264,6 +264,50 @@ def compute_venue_affinity(
         return 0.7
 
 
+def compute_venue_song_affinity(
+    venue_name: str,
+    shows_df: pd.DataFrame,
+    appearances_df: pd.DataFrame,
+    min_shows: int = 8,
+    pseudocount: int = 12,
+    strength: float = 0.6,
+) -> dict[str, float]:
+    """Per-song multiplicative affinity for a *specific* venue vs its type.
+
+    Phish has real venue traditions (the songs that show up at Dick's, at Deer
+    Creek), but with only a few dozen shows per venue the raw rates are noisy and
+    season-confounded. So this:
+      - drops NYE runs, whose songs (Auld Lang Syne ...) would otherwise pollute
+        a summer run at the same building (MSG history is mostly NYE);
+      - returns {} when the venue has < `min_shows` of qualifying history, so the
+        scorer falls back to the venue-type signal for new/thin venues;
+      - empirical-Bayes shrinks each song's venue rate toward its type rate with
+        `pseudocount` pseudo-shows, killing small-sample spikes;
+      - maps the residual lift to a bounded multiplier (a nudge, not a takeover).
+    """
+    sh = shows_df[~shows_df["tour"].fillna("").str.contains("NYE", case=False)]
+    vshows = sh[sh["venue_name"] == venue_name]
+    if len(vshows) < min_shows:
+        return {}
+    vtype = vshows["venue_type"].iloc[0]
+    tshows = sh[sh["venue_type"] == vtype]
+    n_v, n_t = len(vshows), len(tshows)
+
+    av = appearances_df[appearances_df["show_id"].isin(set(vshows["show_id"]))]
+    at = appearances_df[appearances_df["show_id"].isin(set(tshows["show_id"]))]
+    pres_v = av.groupby("song_id")["show_id"].nunique()
+    pres_t = at.groupby("song_id")["show_id"].nunique()
+
+    out: dict[str, float] = {}
+    for sid, k_t in pres_t.items():
+        type_rate = k_t / n_t
+        k_v = int(pres_v.get(sid, 0))
+        shrunk = (k_v + pseudocount * type_rate) / (n_v + pseudocount)
+        lift = (shrunk - type_rate) / (type_rate + 0.05)
+        out[sid] = float(np.clip(1.0 + strength * lift, 0.6, 1.5))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Batch scoring (from V1 interface, using V2 algorithms)
 # ---------------------------------------------------------------------------
