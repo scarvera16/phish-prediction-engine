@@ -36,6 +36,11 @@ def compute_all_features(
     # Filter to training window
     hist_shows = shows_df[shows_df["date"] <= as_of_date].copy()
     hist_app = appearances_df[appearances_df["date"] <= as_of_date].copy()
+    # Restrict appearances to the training-window shows. The date filter alone
+    # can admit appearances from shows not in `shows_df` (e.g. a held-out tour's
+    # earlier nights during a backtest), which leaves a song's gap history empty
+    # and breaks downstream. No-op when shows_df already spans the full window.
+    hist_app = hist_app[hist_app["show_id"].isin(set(hist_shows["show_id"]))]
 
     total_shows = len(hist_shows)
     show_nums = hist_shows.set_index("show_id")["show_num"]
