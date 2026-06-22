@@ -27,7 +27,7 @@ from phish_engine.features import compute_all_features
 from phish_engine.clustering import cluster_songs
 from phish_engine.predictor import predict_multi_night_run
 from phish_engine.backtest.validator import run_backtest
-from phish_engine.scoring import ScoringWeights
+from phish_engine.scoring import ScoringWeights, compute_venue_song_affinity
 
 # Training cache lives in the package; no separate data/ copy needed.
 DATA_DIR = "phish_engine/data/cache"
@@ -419,6 +419,28 @@ def main():
         verbose=True,
     )
 
+    # ── 6b. Venue tendencies (display only) ────────────────────────────────────
+    # Songs each building tends to get, vs its venue-type baseline. This is a
+    # teaching surface, NOT a prediction input: backtesting showed it doesn't
+    # improve accuracy, so it never touches the model. Only venues with enough
+    # history qualify; new/thin venues are simply omitted.
+    venue_tendencies = {}
+    for venue in dict.fromkeys(show_venues):
+        aff = compute_venue_song_affinity(venue, shows_df, appearances_df)
+        if not aff:
+            continue
+        rows = []
+        for sid, mult in sorted(aff.items(), key=lambda x: -x[1]):
+            if mult <= 1.05 or sid not in catalog:
+                continue
+            rows.append({"song_id": sid, "name": catalog[sid]["name"],
+                         "mult": round(float(mult), 2)})
+            if len(rows) >= 6:
+                break
+        if rows:
+            venue_tendencies[venue] = rows
+    print(f"  Venue tendencies for {len(venue_tendencies)} venues")
+
     # ── 7. Assemble final JSON ────────────────────────────────────────────────
     export = {
         "meta": {
@@ -436,6 +458,7 @@ def main():
         "heatmap": heatmap,
         "bustouts": bustouts[:15],
         "song_pairs": {k: v for k, v in SONG_PAIRS.items()},
+        "venue_tendencies": venue_tendencies,
         "backtest": {
             "avg_hit_rate": round(backtest["avg_hit_rate"], 3),
             "avg_set_precision": round(backtest["avg_set_precision"], 3),
