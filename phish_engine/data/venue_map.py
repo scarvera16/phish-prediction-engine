@@ -34,8 +34,14 @@ VENUE_TYPE_MAP: dict[str, str] = {
     "Chaifetz Arena, Saint Louis University": "arena",
     "Ervin J. Nutter Center, Wright State University": "arena",
     "Credit One Stadium": "arena",
+    "Kohl Center": "arena",
+    "Enmarket Arena": "arena",
     # Outdoor / Amphitheaters
     "Dick's Sporting Goods Park": "outdoor",
+    # Ruoff Music Center is Deer Creek (Noblesville) — an outdoor amphitheater.
+    # Without this it hits the "Center" -> arena keyword fallback and the 12
+    # historical Deer Creek shows (plus the summer stand) misclassify as arena.
+    "Ruoff Music Center": "outdoor",
     "Gorge Amphitheatre": "outdoor",
     "Alpine Valley Music Theatre": "outdoor",
     "Fenway Park": "outdoor",
