@@ -28,6 +28,7 @@ from .clustering import (
     get_cluster_members,
 )
 from .predictor import predict_show, predict_multi_night_run
+from .stands import detect_stands, stand_positions
 from .set_builder import build_setlist, SetConfig, format_setlist
 from .song_model import SongModel, build_song_model, score_song_for_slot
 from .data.songs import get_songs_df, SONG_PAIRS

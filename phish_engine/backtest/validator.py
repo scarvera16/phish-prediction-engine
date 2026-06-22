@@ -16,7 +16,8 @@ Metrics
 import numpy as np
 import pandas as pd
 from ..features import compute_all_features
-from ..predictor import predict_show
+from ..predictor import predict_show, tour_variety_penalties
+from ..stands import detect_stands
 
 
 def _actual_sets(show_id: str, appearances_df: pd.DataFrame) -> dict:
@@ -70,6 +71,7 @@ def run_backtest(
     validation_tour: str,
     weights=None,
     verbose: bool = True,
+    soft_variety: bool = True,
 ) -> dict:
     """
     Run backtesting on a specific named tour run.
@@ -102,8 +104,10 @@ def run_backtest(
     per_show_metrics = []
     run_exclusions: set[str] = set()
     prev_venue: str | None = None
+    stand_ids = detect_stands(val_shows["venue_name"].tolist())
+    show_song_history: list[set[str]] = []
 
-    for _, row in val_shows.iterrows():
+    for i, (_, row) in enumerate(val_shows.iterrows()):
         show_id   = row["show_id"]
         show_date = row["date"]
         vtype     = row["venue_type"]
@@ -121,6 +125,11 @@ def run_backtest(
         feat_df = compute_all_features(songs_df, train_shows, appearances_df, cutoff)
         n_train = int(train_shows["show_num"].max() or 0)
 
+        soft_excl = (
+            tour_variety_penalties(show_song_history, stand_ids, i)
+            if soft_variety else None
+        )
+
         pred = predict_show(
             show_date=show_date,
             venue_type=vtype,
@@ -129,6 +138,7 @@ def run_backtest(
             cluster_labels=cluster_labels,
             total_shows_in_train=n_train,
             run_exclusions=run_exclusions,
+            soft_exclusions=soft_excl,
             weights=weights,
         )
 
@@ -152,8 +162,9 @@ def run_backtest(
             if correct_names:
                 print(f"    Correct picks: {', '.join(correct_names)}")
 
-        for song_id in actual["1"] + actual["2"] + actual["e"]:
-            run_exclusions.add(song_id)
+        actual_songs = set(actual["1"]) | set(actual["2"]) | set(actual["e"])
+        run_exclusions |= actual_songs
+        show_song_history.append(actual_songs)
 
     avg_hit      = float(np.mean([m["hit_rate"]      for m in per_show_metrics]))
     avg_set_prec = float(np.mean([m["set_precision"] for m in per_show_metrics]))

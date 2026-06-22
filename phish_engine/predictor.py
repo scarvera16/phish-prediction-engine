@@ -16,6 +16,42 @@ import pandas as pd
 from .scoring import score_all_songs, score_breakdown, ScoringWeights, DEFAULT_WEIGHTS
 from .data.songs import SONG_PAIRS
 
+# Soft "variety" penalty for songs played earlier in a tour but in a *different*
+# stand. Within a stand, no-repeat is a hard rule; across stands songs recur,
+# but not immediately. Measured across 2022-2025 summer tours: a song almost
+# never returns within 1-3 shows (~8% of repeats), with returns peaking at +5-7
+# shows (median gap 7). So a just-played song is scored down hard and recovers to
+# full eligibility by ~VARIETY_RECOVERY shows later.
+VARIETY_FLOOR = 0.25       # multiplier for a song played one show ago
+VARIETY_RECOVERY = 8       # shows until a song is fully eligible again
+
+
+def tour_variety_penalties(
+    show_song_history: list[set[str]],
+    stand_ids: list[int],
+    current_idx: int,
+    floor: float = VARIETY_FLOOR,
+    recovery: int = VARIETY_RECOVERY,
+) -> dict[str, float]:
+    """Soft score multipliers for the show at `current_idx`.
+
+    Songs played earlier in the tour, in an *earlier stand*, are penalized by how
+    recently they appeared: strongest for a song played one show ago, ramping
+    linearly back to 1.0 (no penalty) by `recovery` shows. Songs in the current
+    stand are omitted (they are hard-excluded elsewhere). Empty for the first
+    stand of a run, so a single-venue residency is unaffected.
+    """
+    penalties: dict[str, float] = {}
+    for j in range(current_idx):
+        if stand_ids[j] == stand_ids[current_idx]:
+            continue  # same stand → hard no-repeat handles it
+        shows_ago = current_idx - j
+        mult = min(1.0, floor + (1.0 - floor) * (shows_ago - 1) / max(recovery - 1, 1))
+        for sid in show_song_history[j]:
+            # Most-recent appearance wins (strongest penalty).
+            penalties[sid] = min(penalties.get(sid, 1.0), mult)
+    return penalties
+
 
 def predict_show(
     show_date: pd.Timestamp,
@@ -187,17 +223,40 @@ def predict_multi_night_run(
     set1_size: int = 11,
     set2_size: int = 7,
     enc_size: int = 2,
+    show_venues: list[str] | None = None,
+    venue_types: list[str] | None = None,
 ) -> list[dict]:
     """
-    Predict a full multi-night run with rolling exclusion windows.
+    Predict a full multi-night run with stand-scoped no-repeat.
 
-    For residencies with multi-weekend structure, distributes top songs
-    evenly across weekends so each weekend gets its share of crowd favorites.
-    All songs from prior nights in the run are hard-excluded (zero repeats).
+    No-repeat is scoped to the *stand* (a maximal run of consecutive shows at
+    one venue): the band never repeats within a stand but replays ~58% of its
+    songs at later stops, so exclusions reset at each stand boundary. For a
+    single-venue run (a residency) the whole run is one stand and every prior
+    night is excluded — identical to the original behaviour.
+
+    Parameters
+    ----------
+    venue_type   : default venue type, applied to every show unless overridden
+    show_venues  : per-show venue *names* for stand detection. Defaults to a
+                   single venue, i.e. one stand spanning the whole run.
+    venue_types  : per-show venue *types* for scoring. Defaults to `venue_type`.
+
+    For residencies with multi-weekend structure, distributes top songs evenly
+    across weekends so each weekend gets its share of crowd favorites. That
+    distribution is a single-venue heuristic and is skipped for multi-stand runs.
     """
     from .features import compute_all_features
+    from .stands import detect_stands
 
     n_shows = len(show_dates)
+
+    # ── Stand structure ──
+    if show_venues is None:
+        show_venues = [venue_type] * n_shows
+    stand_ids = detect_stands(show_venues)
+    n_stands = len(set(stand_ids))
+    show_vtypes = venue_types if venue_types is not None else [venue_type] * n_shows
 
     # ── Detect weekend structure ──
     # Group shows into weekends (gap of 3+ days = new weekend)
@@ -214,8 +273,10 @@ def predict_multi_night_run(
     # ── Pre-assign top songs to weekends ──
     # Score all songs once to find the top candidates, then round-robin
     # assign them so each weekend gets an equal share of favorites.
+    # Even-distribution across weekends is a single-venue residency heuristic;
+    # for a multi-stand tour, songs are *meant* to recur across stops, so skip it.
     weekend_reserves: dict[int, set[str]] = {}  # show_index -> reserved songs
-    if n_weekends >= 2:
+    if n_stands == 1 and n_weekends >= 2:
         cutoff = show_dates[0] - pd.Timedelta(days=1)
         feat_df_init = compute_all_features(songs_df, shows_df, appearances_df, cutoff)
         total_init = int(shows_df[shows_df["date"] <= cutoff]["show_num"].max() or 0)
@@ -256,14 +317,20 @@ def predict_multi_night_run(
         feat_df = compute_all_features(songs_df, shows_df, appearances_df, cutoff)
         total_shows = int(shows_df[shows_df["date"] <= cutoff]["show_num"].max() or 0)
 
-        # Hard-exclude ALL songs from previous nights in this run.
+        # Hard-exclude songs from previous nights *of the same stand*. New
+        # stand → clean slate, so the ~58% of songs that recur across stops
+        # are eligible again.
         hard_exclusions: set[str] = set()
-        for lookback in range(1, len(show_song_history) + 1):
-            hard_exclusions |= show_song_history[-lookback]
+        for j in range(i):
+            if stand_ids[j] == stand_ids[i]:
+                hard_exclusions |= show_song_history[j]
 
-        # Hard-exclude songs reserved for other weekends so top songs
-        # get distributed evenly instead of all landing on weekend 1
-        soft_exclusions: dict[str, float] = {}
+        # Soft variety penalty: songs played in earlier stands are scored down
+        # by how recently they appeared, so stand-openers don't replay the
+        # previous stop's setlist (real tours keep ~41% fresh across stops).
+        soft_exclusions: dict[str, float] = tour_variety_penalties(
+            show_song_history, stand_ids, i,
+        )
         current_weekend = next(
             wi for wi, shows in enumerate(weekends) if i in shows
         )
@@ -276,7 +343,7 @@ def predict_multi_night_run(
 
         pred = predict_show(
             show_date=show_date,
-            venue_type=venue_type,
+            venue_type=show_vtypes[i],
             songs_df=songs_df,
             feat_df=feat_df,
             cluster_labels=cluster_labels,

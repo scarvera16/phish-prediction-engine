@@ -366,13 +366,17 @@ def main():
         })
     bustouts.sort(key=lambda x: -x["bustout_score"])
 
-    # ── 6. Backtest against NYE 2025 ────────────────────────────────────────────
+    # ── 6. Backtest against the most recent summer tour ─────────────────────────
+    # Validate on a multi-venue summer tour, not the 2025 NYE run. NYE is a
+    # single-venue, end-of-data best case (~35%); a sprawling summer tour is the
+    # honest analog for what we predict next, and what the public number should
+    # reflect (~26%).
     backtest = run_backtest(
         songs_df=songs_df,
         shows_df=shows_df,
         appearances_df=appearances_df,
         cluster_labels=cluster_labels,
-        validation_tour="2025 NYE Run",
+        validation_tour="2025 Early Summer Tour",
         weights=WEIGHTS,
         verbose=True,
     )
