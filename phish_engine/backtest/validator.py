@@ -13,10 +13,15 @@ Metrics
   set_precision     - % of songs predicted in the correct set
 """
 
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 from ..features import compute_all_features
-from ..predictor import predict_show, tour_variety_penalties
+from ..predictor import (
+    predict_show, tour_variety_penalties,
+    slot_variety_penalties, role_fills, ROLE_SLOTS,
+)
 from ..stands import detect_stands
 
 
@@ -72,6 +77,7 @@ def run_backtest(
     weights=None,
     verbose: bool = True,
     soft_variety: bool = True,
+    slot_variety: bool = True,
 ) -> dict:
     """
     Run backtesting on a specific named tour run.
@@ -106,6 +112,7 @@ def run_backtest(
     prev_venue: str | None = None
     stand_ids = detect_stands(val_shows["venue_name"].tolist())
     show_song_history: list[set[str]] = []
+    role_history: dict[str, Counter] = {slot: Counter() for slot in ROLE_SLOTS}
 
     for i, (_, row) in enumerate(val_shows.iterrows()):
         show_id   = row["show_id"]
@@ -129,6 +136,7 @@ def run_backtest(
             tour_variety_penalties(show_song_history, stand_ids, i)
             if soft_variety else None
         )
+        slot_pen = slot_variety_penalties(role_history) if slot_variety else None
 
         pred = predict_show(
             show_date=show_date,
@@ -139,6 +147,7 @@ def run_backtest(
             total_shows_in_train=n_train,
             run_exclusions=run_exclusions,
             soft_exclusions=soft_excl,
+            slot_penalties=slot_pen,
             weights=weights,
         )
 
@@ -165,6 +174,9 @@ def run_backtest(
         actual_songs = set(actual["1"]) | set(actual["2"]) | set(actual["e"])
         run_exclusions |= actual_songs
         show_song_history.append(actual_songs)
+        # Track the actual structural roles this show, for the next show's penalty.
+        for slot, fills in role_fills(actual["1"], actual["2"], actual["e"]).items():
+            role_history[slot].update(fills)
 
     avg_hit      = float(np.mean([m["hit_rate"]      for m in per_show_metrics]))
     avg_set_prec = float(np.mean([m["set_precision"] for m in per_show_metrics]))
