@@ -16,6 +16,42 @@ import pandas as pd
 from .scoring import score_all_songs, score_breakdown, ScoringWeights, DEFAULT_WEIGHTS
 from .data.songs import SONG_PAIRS
 
+# Soft "variety" penalty for songs played earlier in a tour but in a *different*
+# stand. Within a stand, no-repeat is a hard rule; across stands songs recur,
+# but not immediately. Measured across 2022-2025 summer tours: a song almost
+# never returns within 1-3 shows (~8% of repeats), with returns peaking at +5-7
+# shows (median gap 7). So a just-played song is scored down hard and recovers to
+# full eligibility by ~VARIETY_RECOVERY shows later.
+VARIETY_FLOOR = 0.25       # multiplier for a song played one show ago
+VARIETY_RECOVERY = 8       # shows until a song is fully eligible again
+
+
+def tour_variety_penalties(
+    show_song_history: list[set[str]],
+    stand_ids: list[int],
+    current_idx: int,
+    floor: float = VARIETY_FLOOR,
+    recovery: int = VARIETY_RECOVERY,
+) -> dict[str, float]:
+    """Soft score multipliers for the show at `current_idx`.
+
+    Songs played earlier in the tour, in an *earlier stand*, are penalized by how
+    recently they appeared: strongest for a song played one show ago, ramping
+    linearly back to 1.0 (no penalty) by `recovery` shows. Songs in the current
+    stand are omitted (they are hard-excluded elsewhere). Empty for the first
+    stand of a run, so a single-venue residency is unaffected.
+    """
+    penalties: dict[str, float] = {}
+    for j in range(current_idx):
+        if stand_ids[j] == stand_ids[current_idx]:
+            continue  # same stand → hard no-repeat handles it
+        shows_ago = current_idx - j
+        mult = min(1.0, floor + (1.0 - floor) * (shows_ago - 1) / max(recovery - 1, 1))
+        for sid in show_song_history[j]:
+            # Most-recent appearance wins (strongest penalty).
+            penalties[sid] = min(penalties.get(sid, 1.0), mult)
+    return penalties
+
 
 def predict_show(
     show_date: pd.Timestamp,
@@ -289,9 +325,12 @@ def predict_multi_night_run(
             if stand_ids[j] == stand_ids[i]:
                 hard_exclusions |= show_song_history[j]
 
-        # Hard-exclude songs reserved for other weekends so top songs
-        # get distributed evenly instead of all landing on weekend 1
-        soft_exclusions: dict[str, float] = {}
+        # Soft variety penalty: songs played in earlier stands are scored down
+        # by how recently they appeared, so stand-openers don't replay the
+        # previous stop's setlist (real tours keep ~41% fresh across stops).
+        soft_exclusions: dict[str, float] = tour_variety_penalties(
+            show_song_history, stand_ids, i,
+        )
         current_weekend = next(
             wi for wi, shows in enumerate(weekends) if i in shows
         )
