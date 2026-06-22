@@ -93,3 +93,37 @@ class TestSlotVariety:
     def test_unfilled_role_has_no_penalty(self):
         pen = slot_variety_penalties({"encore": Counter()})
         assert pen["encore"] == {}
+
+
+class TestVenueAffinity:
+    @staticmethod
+    def _frames():
+        import pandas as pd
+        rows = ([{"show_id": f"v{i}", "venue_name": "V", "venue_type": "arena", "tour": "T"} for i in range(10)]
+                + [{"show_id": f"o{i}", "venue_name": "O", "venue_type": "arena", "tour": "T"} for i in range(10)])
+        app = ([{"show_id": f"v{i}", "song_id": "loved"} for i in range(10)]      # all 10 V shows
+               + [{"show_id": f"o{i}", "song_id": "loved"} for i in range(2)]     # only 2 O shows
+               + [{"show_id": f"v{i}", "song_id": "base"} for i in range(10)]     # everywhere
+               + [{"show_id": f"o{i}", "song_id": "base"} for i in range(10)])
+        return pd.DataFrame(rows), pd.DataFrame(app)
+
+    def test_over_represented_song_gets_boost(self):
+        from phish_engine.scoring import compute_venue_song_affinity
+        shows, app = self._frames()
+        aff = compute_venue_song_affinity("V", shows, app, min_shows=8)
+        assert aff["loved"] > 1.0            # shows up far more at V than the arena baseline
+        assert abs(aff["base"] - 1.0) < 0.1  # plays everywhere → roughly neutral
+
+    def test_thin_venue_returns_empty(self):
+        from phish_engine.scoring import compute_venue_song_affinity
+        shows, app = self._frames()
+        assert compute_venue_song_affinity("O", shows, app, min_shows=20) == {}
+
+    def test_nye_runs_excluded(self):
+        import pandas as pd
+        from phish_engine.scoring import compute_venue_song_affinity
+        shows = pd.DataFrame([{"show_id": f"n{i}", "venue_name": "MSG",
+                              "venue_type": "arena", "tour": "2024 NYE Run"} for i in range(10)])
+        app = pd.DataFrame([{"show_id": f"n{i}", "song_id": "auld"} for i in range(10)])
+        # all history is NYE → dropped → not enough qualifying shows → empty
+        assert compute_venue_song_affinity("MSG", shows, app, min_shows=4) == {}
