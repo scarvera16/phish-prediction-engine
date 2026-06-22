@@ -1,6 +1,7 @@
 """Tests for stand detection (the no-repeat / run unit)."""
 
 from phish_engine.stands import detect_stands, stand_positions
+from phish_engine.predictor import tour_variety_penalties, VARIETY_FLOOR
 
 
 class TestDetectStands:
@@ -33,3 +34,30 @@ class TestStandPositions:
     def test_one_nighter_is_both_opener_and_closer(self):
         (p,) = stand_positions(["A"])
         assert p.night == 1 and p.size == 1 and p.is_opener and p.is_closer
+
+
+class TestTourVarietyPenalties:
+    def test_first_stand_has_no_penalties(self):
+        # A single-venue residency: every show is the same stand, nothing to
+        # penalize across stands (the Sphere path is unaffected).
+        hist = [{"a", "b"}, {"c", "d"}]
+        assert tour_variety_penalties(hist, [0, 0, 0], 2) == {}
+
+    def test_same_stand_songs_not_penalized(self):
+        # Songs from the current stand are hard-excluded elsewhere, not softened.
+        hist = [{"a"}, {"b"}]
+        pen = tour_variety_penalties(hist, [0, 1, 1], 2)
+        assert "b" not in pen          # b is in the current stand (id 1)
+        assert "a" in pen              # a is from the earlier stand
+
+    def test_more_recent_means_stronger_penalty(self):
+        hist = [{"old"}, {"recent"}]   # stands 0 and 1, current is stand 2
+        pen = tour_variety_penalties(hist, [0, 1, 2], 2)
+        assert pen["recent"] == VARIETY_FLOOR        # played one show ago
+        assert pen["old"] > pen["recent"]            # older → weaker penalty
+
+    def test_recovers_to_full_eligibility(self):
+        # A song last played `recovery` shows ago carries no penalty.
+        hist = [{"x"}] + [{f"f{i}"} for i in range(8)]
+        pen = tour_variety_penalties(hist, list(range(10)), 8, floor=0.25, recovery=8)
+        assert pen["x"] == 1.0
