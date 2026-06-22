@@ -11,6 +11,8 @@ the top-scoring song for each slot, subject to:
 
 from __future__ import annotations
 
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 from .scoring import score_all_songs, score_breakdown, ScoringWeights, DEFAULT_WEIGHTS
@@ -53,6 +55,48 @@ def tour_variety_penalties(
     return penalties
 
 
+# Slot-variety penalty: a song should not keep landing in the *same structural
+# spot* across a tour. Measured across 2022-2025 summer tours, a song opens a
+# given set at most 3 times in a whole tour (1x ~85%, 2x ~13%, 3x ~2%, 4x never).
+# The penalty multiplies a song's score for a role by SLOT_VARIETY_BASE ** (times
+# it has already filled that role this tour): free the first time, halved-ish at
+# 2, steep at 3, effectively prohibitive at 4. Only the structural roles are
+# tracked — interior set position is score-rank, not a meaningful "spot".
+SLOT_VARIETY_BASE = 0.4
+ROLE_SLOTS = ("show_opener", "s1_closer", "s2_opener", "s2_closer", "encore")
+
+
+def role_fills(set1_ids: list[str], set2_ids: list[str],
+               encore_ids: list[str]) -> dict[str, list[str]]:
+    """Which song filled each structural role in a show (opener/closer/encore)."""
+    r: dict[str, list[str]] = {}
+    if set1_ids:
+        r["show_opener"] = [set1_ids[0]]
+        r["s1_closer"] = [set1_ids[-1]]
+    if set2_ids:
+        r["s2_opener"] = [set2_ids[0]]
+        r["s2_closer"] = [set2_ids[-1]]
+    if encore_ids:
+        r["encore"] = list(encore_ids)
+    return r
+
+
+def slot_variety_penalties(
+    role_history: dict[str, "Counter"],
+    base: float = SLOT_VARIETY_BASE,
+) -> dict[str, dict[str, float]]:
+    """Per-slot score multipliers from how often each song already filled a role.
+
+    `role_history` maps slot_type -> Counter(song_id -> times filled this tour).
+    Returns slot_type -> {song_id: multiplier}. A song can still reappear; it is
+    just steered away from the spot it already owns.
+    """
+    return {
+        slot: {sid: base ** cnt for sid, cnt in counter.items() if cnt > 0}
+        for slot, counter in role_history.items()
+    }
+
+
 def predict_show(
     show_date: pd.Timestamp,
     venue_type: str,
@@ -62,6 +106,7 @@ def predict_show(
     total_shows_in_train: int,
     run_exclusions: set | None = None,
     soft_exclusions: dict | None = None,
+    slot_penalties: dict | None = None,
     weights: ScoringWeights | dict | None = None,
     top_k: int = 3,
     set1_size: int = 11,
@@ -91,6 +136,7 @@ def predict_show(
     w = weights or DEFAULT_WEIGHTS
     hard_excl_run = run_exclusions or set()
     soft_excl = soft_exclusions or {}
+    slot_pen = slot_penalties or {}
     chosen_show: list[str] = []
 
     def _pick(slot_type: str, n: int, hard_excl: set | None = None) -> list[dict]:
@@ -107,8 +153,14 @@ def predict_show(
             total_shows=total_shows_in_train,
             weights=w,
         )
-        # Apply tiered soft penalties
+        # Apply tiered soft penalties (song-level variety)
         for sid, penalty in soft_excl.items():
+            if sid in scores.index:
+                scores[sid] *= penalty
+
+        # Apply slot-variety penalty: steer songs away from a spot they already
+        # own this tour (keyed by the role we're filling right now).
+        for sid, penalty in slot_pen.get(slot_type, {}).items():
             if sid in scores.index:
                 scores[sid] *= penalty
 
@@ -191,7 +243,10 @@ def predict_show(
     setlist["set2"] += _commit(s2_closers, 1)
 
     # -- ENCORE --
-    if "tweezer" in chosen_show and "tweeprise" not in chosen_show and "tweeprise" not in hard_excl_run:
+    # Tweezer Reprise auto-follows Tweezer, but not every single time across a
+    # tour — gate it by the same slot-variety rule so it doesn't encore 5 nights.
+    tweeprise_ok = slot_pen.get("encore", {}).get("tweeprise", 1.0) > 0.1
+    if tweeprise_ok and "tweezer" in chosen_show and "tweeprise" not in chosen_show and "tweeprise" not in hard_excl_run:
         bd = score_breakdown("tweeprise", "encore", songs_df, feat_df, cluster_labels,
                              chosen_show, venue_type, total_shows_in_train, w)
         if enc_size > 1:
@@ -310,6 +365,7 @@ def predict_multi_night_run(
 
     # ── Predict each show ──
     show_song_history: list[set[str]] = []
+    role_history: dict[str, Counter] = {slot: Counter() for slot in ROLE_SLOTS}
     predictions = []
 
     for i, show_date in enumerate(show_dates):
@@ -341,6 +397,10 @@ def predict_multi_night_run(
             if current_weekend != reserve_weekend:
                 hard_exclusions |= reserved
 
+        # Slot-variety: steer songs away from a structural spot they already
+        # own earlier in this tour (tour-wide, not stand-scoped).
+        slot_pen = slot_variety_penalties(role_history)
+
         pred = predict_show(
             show_date=show_date,
             venue_type=show_vtypes[i],
@@ -350,6 +410,7 @@ def predict_multi_night_run(
             total_shows_in_train=total_shows,
             run_exclusions=hard_exclusions,
             soft_exclusions=soft_exclusions,
+            slot_penalties=slot_pen,
             weights=weights,
             set1_size=set1_size,
             set2_size=set2_size,
@@ -364,5 +425,10 @@ def predict_multi_night_run(
             for entry in pred[slot]:
                 this_show_songs.add(entry["song_id"])
         show_song_history.append(this_show_songs)
+
+        # Record which song filled each structural role, for next show's penalty.
+        ids = {k: [e["song_id"] for e in pred[k]] for k in ("set1", "set2", "encore")}
+        for slot, fills in role_fills(ids["set1"], ids["set2"], ids["encore"]).items():
+            role_history[slot].update(fills)
 
     return predictions

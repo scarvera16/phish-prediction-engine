@@ -1,7 +1,12 @@
 """Tests for stand detection (the no-repeat / run unit)."""
 
+from collections import Counter
+
 from phish_engine.stands import detect_stands, stand_positions
-from phish_engine.predictor import tour_variety_penalties, VARIETY_FLOOR
+from phish_engine.predictor import (
+    tour_variety_penalties, VARIETY_FLOOR,
+    role_fills, slot_variety_penalties, SLOT_VARIETY_BASE,
+)
 
 
 class TestDetectStands:
@@ -61,3 +66,30 @@ class TestTourVarietyPenalties:
         hist = [{"x"}] + [{f"f{i}"} for i in range(8)]
         pen = tour_variety_penalties(hist, list(range(10)), 8, floor=0.25, recovery=8)
         assert pen["x"] == 1.0
+
+
+class TestSlotVariety:
+    def test_role_fills_picks_opener_closer_encore(self):
+        r = role_fills(["open", "mid", "close1"], ["s2open", "s2close"], ["enc1", "enc2"])
+        assert r["show_opener"] == ["open"]
+        assert r["s1_closer"] == ["close1"]
+        assert r["s2_opener"] == ["s2open"]
+        assert r["s2_closer"] == ["s2close"]
+        assert r["encore"] == ["enc1", "enc2"]
+
+    def test_role_fills_handles_empty_sets(self):
+        r = role_fills([], [], [])
+        assert r == {}
+
+    def test_penalty_compounds_with_repeated_role(self):
+        hist = {"show_opener": Counter({"chalkdust": 2, "free": 1})}
+        pen = slot_variety_penalties(hist)
+        # base ** count: opened twice → base^2, once → base^1
+        assert pen["show_opener"]["chalkdust"] == SLOT_VARIETY_BASE ** 2
+        assert pen["show_opener"]["free"] == SLOT_VARIETY_BASE
+        # by the 4th opening the multiplier is tiny — effectively prohibitive
+        assert SLOT_VARIETY_BASE ** 3 < 0.1
+
+    def test_unfilled_role_has_no_penalty(self):
+        pen = slot_variety_penalties({"encore": Counter()})
+        assert pen["encore"] == {}
