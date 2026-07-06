@@ -8,7 +8,8 @@ ML-powered setlist prediction library for Phish concerts. Trained on historical 
 - **Multi-night run prediction**: zero-repeat constraint across nights, weekend-aware song distribution, mandatory pair sequencing (Mike's Groove, etc.)
 - **K-Means clustering**: silhouette-based k selection, semantic cluster naming
 - **Energy-arc set construction**: alternate prediction path via `SongModel` + `build_setlist()` with segue chain building
-- **Backtesting**: held-out tour validation — 36.6% song-level hit rate against real shows
+- **Backtesting**: held-out tour validation. About 26% song-level hit rate on multi-venue summer tours, which is the hard case. Single-venue runs (like a NYE stand) score higher.
+- **Modern-era training**: trained on Phish's 2019-onward era (~300 shows). Backtesting a wider window back to 2009 made accuracy worse, so the recent window is deliberate.
 - **Two data modes**: real phish.net cached data, or fully synthetic mock data (no API key needed)
 
 ## Installation
@@ -78,10 +79,13 @@ for night in predictions:
 
 ## Using Real phish.net Data
 
-Cache JSON files from the phish.net API into `data/`:
-- `shows.json` — show metadata
-- `setlists.json` — full setlist entries
-- `songs.json` — song catalog
+This repo does not bundle phish.net's data. Bring your own by fetching from the
+[phish.net API](https://docs.phish.net) (a free API key) into `data/`, and please
+follow their terms. Song durations come from [phish.in](https://phish.in). The
+cache files needed are:
+- `shows.json` for show metadata
+- `setlists.json` for full setlist entries
+- `songs.json` for the song catalog
 
 Then load with:
 
@@ -126,7 +130,7 @@ Outputs a single JSON file with predicted setlists, song catalog, cluster assign
 | `gap_pressure` | 0.05 | Log-normal gap pressure (sigma=0.45) |
 | `cluster` | 0.05 | Cluster diversity bonus |
 
-Cross-validated across 7 multi-night runs: **36.6% song-level hit rate**.
+Held-out validation on summer tours (the multi-venue, harder case) lands around **26% song-level hit rate**. Single-venue runs like a NYE stand score higher. These weights are the current optimized set; the 6 top-level weights are shown, while the sub-parameter tuning lives in `optimized_config.json`.
 
 Customize weights:
 
