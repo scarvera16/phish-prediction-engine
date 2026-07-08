@@ -30,7 +30,9 @@ echo "== 4/4  Freeze played shows (<= $CUTOFF) back to their locked calls =="
   "$ENGINE/prediction_data.json" /tmp/roll_live_prev.json "$CUTOFF" "$ENGINE/prediction_data.json"
 
 echo
-echo "Done. To ship:"
+echo "Done. To ship (in $FRONTEND):"
 echo "  cp $ENGINE/prediction_data.json $FRONTEND/prediction_data.json"
-echo "  (cd $FRONTEND && python scripts/json_to_ts.py && npm run build)"
+echo "  python scripts/json_to_ts.py           # regenerate prediction-data.ts (271 trained songs)"
+echo "  node scripts/backfill-catalog.mjs      # REQUIRED: restores the full ~977-song pick-sheet catalog"
+echo "  npm run build                          # verify"
 echo "  review the diff, commit, push — Vercel deploys."
