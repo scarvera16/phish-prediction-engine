@@ -21,7 +21,9 @@ PY="$ENGINE/.venv/bin/python"
 echo "== 1/6  Ingest actuals for $YEAR (idempotent) =="
 "$PY" "$ENGINE/scripts/ingest_phish_shows.py" "$YEAR"
 
-echo "== 2/6  Snapshot the currently-live predictions (the freeze source) =="
+echo "== 2/6  Sync the frontend to main + snapshot the live predictions =="
+git -C "$FRONTEND" checkout main
+git -C "$FRONTEND" pull --ff-only origin main
 cp "$FRONTEND/prediction_data.json" /tmp/roll_live_prev.json
 
 echo "== 3/6  Rolling export, as of the next unplayed show (cutoff $CUTOFF) =="
