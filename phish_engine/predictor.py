@@ -280,9 +280,16 @@ def predict_multi_night_run(
     enc_size: int = 2,
     show_venues: list[str] | None = None,
     venue_types: list[str] | None = None,
+    actual_setlists: dict[int, set[str]] | None = None,
 ) -> list[dict]:
     """
     Predict a full multi-night run with stand-scoped no-repeat.
+
+    `actual_setlists` maps a show index to the set of song_ids actually played
+    there (for shows already completed in a rolling re-prediction). When a later
+    night of the same stand is predicted, it hard-excludes the *actual* songs of
+    the earlier nights rather than the model's own guesses for them, so the
+    no-repeat rule holds against reality.
 
     No-repeat is scoped to the *stand* (a maximal run of consecutive shows at
     one venue): the band never repeats within a stand but replays ~58% of its
@@ -424,7 +431,13 @@ def predict_multi_night_run(
         for slot in ("set1", "set2", "encore"):
             for entry in pred[slot]:
                 this_show_songs.add(entry["song_id"])
-        show_song_history.append(this_show_songs)
+        # For a completed show, later same-stand nights must avoid what was
+        # *actually* played, not what we guessed. Seed the stand history with the
+        # real setlist when we have it.
+        if actual_setlists and i in actual_setlists:
+            show_song_history.append(set(actual_setlists[i]))
+        else:
+            show_song_history.append(this_show_songs)
 
         # Record which song filled each structural role, for next show's penalty.
         ids = {k: [e["song_id"] for e in pred[k]] for k in ("set1", "set2", "encore")}

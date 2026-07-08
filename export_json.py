@@ -168,6 +168,7 @@ def main():
         as_of_date = (_future[0] if _future else show_dates[-1]) - pd.Timedelta(days=1)
         print(f"  ROLLING: cutoff {run_cutoff.date()}, predicting as of {as_of_date.date()}")
     else:
+        run_cutoff = None
         as_of_date = show_dates[0] - pd.Timedelta(days=1)
 
     # ── 1. Load real Phish.net data ────────────────────────────────────────────
@@ -197,6 +198,23 @@ def main():
     # Use PCA coords from cluster_songs (already computed)
     pca_coords = pca_coords_raw.values if hasattr(pca_coords_raw, 'values') else pca_coords_raw
 
+    # Actual setlists for shows already played (rolling only): so a later night
+    # of the same stand hard-excludes what really got played, not our guess.
+    actual_setlists = None
+    if run_cutoff is not None:
+        with open(f"{DATA_DIR}/setlists.json") as _sf:
+            _raw_sl = json.load(_sf)
+        actual_setlists = {}
+        for i, d in enumerate(show_dates):
+            if d <= run_cutoff:
+                entries = _raw_sl.get(d.strftime("%Y-%m-%d"), [])
+                sids = {_pn_slug_to_song_id(e.get("slug", ""))
+                        for e in entries if str(e.get("artistid")) == "1"}
+                sids.discard("")
+                if sids:
+                    actual_setlists[i] = sids
+        print(f"  seeded actual setlists for {len(actual_setlists)} played show(s)")
+
     # ── 4. Predict the tour ────────────────────────────────────────────────────
     predictions = predict_multi_night_run(
         show_dates=show_dates,
@@ -208,6 +226,7 @@ def main():
         weights=WEIGHTS,
         show_venues=show_venues,
         venue_types=venue_types,
+        actual_setlists=actual_setlists,
     )
 
     # ── 5. Build export structure ─────────────────────────────────────────────
