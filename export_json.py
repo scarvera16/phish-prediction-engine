@@ -11,6 +11,7 @@ Runs the full pipeline and outputs a single JSON file with:
 """
 
 import json
+import os
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -154,7 +155,20 @@ def main():
     show_venues = [v for _, v in SUMMER_2026]
     venue_types = [classify_venue(v) for v in show_venues]
     positions   = stand_positions(show_venues)
-    as_of_date  = show_dates[0] - pd.Timedelta(days=1)
+
+    # Rolling prediction: as the tour unfolds, predict "as of" the day before the
+    # next unplayed show so recency/gap features reflect what's already been
+    # played (the actuals must be ingested into the cache first). Set
+    # ROLL_AS_OF=YYYY-MM-DD to a mid-tour date. Unset = pre-tour behaviour
+    # (predict everything from the day before show 1).
+    _roll = os.environ.get("ROLL_AS_OF")
+    if _roll:
+        run_cutoff = pd.Timestamp(_roll)
+        _future = [d for d in show_dates if d > run_cutoff]
+        as_of_date = (_future[0] if _future else show_dates[-1]) - pd.Timedelta(days=1)
+        print(f"  ROLLING: cutoff {run_cutoff.date()}, predicting as of {as_of_date.date()}")
+    else:
+        as_of_date = show_dates[0] - pd.Timedelta(days=1)
 
     # ── 1. Load real Phish.net data ────────────────────────────────────────────
     songs_df, shows_df, appearances_df = load_real_data(
