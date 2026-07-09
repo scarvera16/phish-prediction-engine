@@ -39,9 +39,13 @@ cp "$ENGINE/prediction_data.json" "$FRONTEND/prediction_data.json"
   && python3 scripts/json_to_ts.py \
   && node scripts/backfill-catalog.mjs )
 
+echo "== Repeat-gap tracker (validates the RECENT_NO_REPEAT window) =="
+"$PY" "$ENGINE/scripts/repeat_gap_tracker.py" --year "$YEAR" \
+  --out "$FRONTEND/repeat_gaps.json" || echo "  (tracker failed — continuing)"
+
 echo "== 6/6  Ship if anything changed =="
 cd "$FRONTEND"
-git add src/lib/prediction-data.ts prediction_data.json
+git add src/lib/prediction-data.ts prediction_data.json repeat_gaps.json
 if git diff --cached --quiet; then
   echo "No prediction change — nothing to deploy."
 else

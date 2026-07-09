@@ -15,3 +15,7 @@ env/
 htmlcov/
 *.so
 .DS_Store
+
+# repeat_gap_tracker.py standalone default output; the pipeline writes the
+# tracked snapshot into the frontend (repo root repeat_gaps.json) instead.
+phish_engine/data/repeat_gaps.json
