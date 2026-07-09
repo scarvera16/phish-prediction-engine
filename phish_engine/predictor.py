@@ -26,6 +26,8 @@ from .data.songs import SONG_PAIRS
 # full eligibility by ~VARIETY_RECOVERY shows later.
 VARIETY_FLOOR = 0.25       # multiplier for a song played one show ago
 VARIETY_RECOVERY = 8       # shows until a song is fully eligible again
+RECENT_NO_REPEAT = 3       # hard-exclude anything played in the last N shows,
+                           # even across venues — Phish doesn't repeat that fast
 
 
 def tour_variety_penalties(
@@ -387,6 +389,12 @@ def predict_multi_night_run(
         for j in range(i):
             if stand_ids[j] == stand_ids[i]:
                 hard_exclusions |= show_song_history[j]
+
+        # Recency no-repeat: Phish essentially never replays a song within a few
+        # shows, even at a new venue. Hard-exclude anything played in the last
+        # RECENT_NO_REPEAT shows so the model never predicts last night's setlist.
+        for j in range(max(0, i - RECENT_NO_REPEAT), i):
+            hard_exclusions |= show_song_history[j]
 
         # Soft variety penalty: songs played in earlier stands are scored down
         # by how recently they appeared, so stand-openers don't replay the
