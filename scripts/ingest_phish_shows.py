@@ -57,6 +57,18 @@ def get(url: str, timeout: int = 90):
     return d
 
 
+# Fields that change without the show changing: fan review counts, editable
+# prose, jam-chart blurbs. Ignored when deciding whether a cached setlist
+# needs a refresh (slug/set/position/gap/isjamchart etc. still count).
+_VOLATILE_FIELDS = {"reviews", "setlistnotes", "footnote",
+                    "jamchart_description", "soundcheck", "meta"}
+
+
+def _stable(entries: list) -> list:
+    return [{k: v for k, v in e.items() if k not in _VOLATILE_FIELDS}
+            for e in entries]
+
+
 def _show_record(entries: list) -> dict:
     """Build a shows.json record from a date's setlist entries."""
     e = entries[0]
@@ -102,8 +114,11 @@ def main() -> None:
             if dt in have_dates:
                 # Already cached, but phish.net setlists get posted live and
                 # corrected for days afterward — a partial or amended setlist
-                # must not be frozen into the cache forever. Replace on change.
-                if setlists.get(dt) != entries:
+                # must not be frozen into the cache forever. Replace on change,
+                # ignoring display-only fields (review counts, editable notes)
+                # that mutate constantly: refreshing on those would dirty the
+                # cache every run and break the roll's no-op-on-no-news property.
+                if _stable(setlists.get(dt, [])) != _stable(entries):
                     setlists[dt] = entries
                     for idx, sh in enumerate(shows):
                         if sh.get("showdate") == dt:
