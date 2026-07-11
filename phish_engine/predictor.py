@@ -28,6 +28,12 @@ VARIETY_FLOOR = 0.25       # multiplier for a song played one show ago
 VARIETY_RECOVERY = 8       # shows until a song is fully eligible again
 RECENT_NO_REPEAT = 3       # hard-exclude anything played in the last N shows,
                            # even across venues — Phish doesn't repeat that fast
+VARIETY_MAX_DAYS = 14      # calendar gate on both windows above: "N shows ago"
+                           # only means something when the shows are close
+                           # together. Past this many days rotation resets (a
+                           # mid-tour break: Fenway -> Dick's is 34 days), and
+                           # real tours show last-block songs replayed freely
+                           # right after a break.
 
 
 def tour_variety_penalties(
@@ -36,6 +42,7 @@ def tour_variety_penalties(
     current_idx: int,
     floor: float = VARIETY_FLOOR,
     recovery: int = VARIETY_RECOVERY,
+    show_dates: list | None = None,
 ) -> dict[str, float]:
     """Soft score multipliers for the show at `current_idx`.
 
@@ -49,6 +56,9 @@ def tour_variety_penalties(
     for j in range(current_idx):
         if stand_ids[j] == stand_ids[current_idx]:
             continue  # same stand → hard no-repeat handles it
+        if (show_dates is not None
+                and (show_dates[current_idx] - show_dates[j]).days > VARIETY_MAX_DAYS):
+            continue  # across a tour break, recency pressure is gone
         shows_ago = current_idx - j
         mult = min(1.0, floor + (1.0 - floor) * (shows_ago - 1) / max(recovery - 1, 1))
         for sid in show_song_history[j]:
@@ -239,6 +249,10 @@ def predict_show(
 
     while len(setlist["set2"]) < set2_size - 1:
         picks = _pick("s2_body", top_k)
+        if not picks:
+            # Candidate pool exhausted (heavy exclusions) — ship a shorter
+            # set rather than spin forever in an unattended roll.
+            break
         setlist["set2"] += _commit(picks, 1)
 
     s2_closers = _pick("s2_closer", top_k)
@@ -393,14 +407,18 @@ def predict_multi_night_run(
         # Recency no-repeat: Phish essentially never replays a song within a few
         # shows, even at a new venue. Hard-exclude anything played in the last
         # RECENT_NO_REPEAT shows so the model never predicts last night's setlist.
+        # Calendar-gated: "last 3 shows" across a multi-week break is not
+        # recency, so those shows don't count against the window.
         for j in range(max(0, i - RECENT_NO_REPEAT), i):
+            if (show_dates[i] - show_dates[j]).days > VARIETY_MAX_DAYS:
+                continue
             hard_exclusions |= show_song_history[j]
 
         # Soft variety penalty: songs played in earlier stands are scored down
         # by how recently they appeared, so stand-openers don't replay the
         # previous stop's setlist (real tours keep ~41% fresh across stops).
         soft_exclusions: dict[str, float] = tour_variety_penalties(
-            show_song_history, stand_ids, i,
+            show_song_history, stand_ids, i, show_dates=show_dates,
         )
         current_weekend = next(
             wi for wi, shows in enumerate(weekends) if i in shows

@@ -91,6 +91,7 @@ def main() -> None:
     have_dates = {s["showdate"] for s in shows}
 
     new_dates: list[str] = []
+    refreshed: list[str] = []
     for y in years:
         rows = [r for r in get(f"{base}/setlists/showyear/{y}.json?apikey={key}")
                 if str(r.get("artistid")) == "1"]
@@ -99,23 +100,34 @@ def main() -> None:
             by_date.setdefault(r["showdate"], []).append(r)
         for dt, entries in sorted(by_date.items()):
             if dt in have_dates:
+                # Already cached, but phish.net setlists get posted live and
+                # corrected for days afterward — a partial or amended setlist
+                # must not be frozen into the cache forever. Replace on change.
+                if setlists.get(dt) != entries:
+                    setlists[dt] = entries
+                    for idx, sh in enumerate(shows):
+                        if sh.get("showdate") == dt:
+                            shows[idx] = _show_record(entries)
+                            break
+                    refreshed.append(dt)
                 continue
             shows.append(_show_record(entries))
             setlists[dt] = entries
             have_dates.add(dt)
             new_dates.append(dt)
         print(f"{y}: {len(by_date)} shows on phish.net, "
-              f"{sum(1 for d in by_date if d in new_dates)} new")
+              f"{sum(1 for d in by_date if d in new_dates)} new, "
+              f"{sum(1 for d in by_date if d in refreshed)} refreshed")
         time.sleep(0.3)
 
-    if not new_dates:
+    if not new_dates and not refreshed:
         print("Cache already current. Nothing to add.")
         return
 
     # Phish.in durations for the new dates (best-effort; jam-chart signal
     # works without them, durations only sharpen the outlier component).
     pin_ok = 0
-    for dt in new_dates:
+    for dt in new_dates + refreshed:
         try:
             d = get(f"https://phish.in/api/v2/shows/{dt}", timeout=30)
             tracks = [{"slug": t.get("slug", ""), "duration": t.get("duration", 0)}
@@ -133,7 +145,8 @@ def main() -> None:
     (CACHE / "setlists.json").write_text(json.dumps(setlists, indent=2))
     (CACHE / "phishin_tracks.json").write_text(json.dumps(phishin, indent=2))
 
-    print(f"\nAdded {len(new_dates)} shows ({new_dates[0]} .. {new_dates[-1]}); "
+    span = f" ({new_dates[0]} .. {new_dates[-1]})" if new_dates else ""
+    print(f"\nAdded {len(new_dates)} shows{span}, refreshed {len(refreshed)}; "
           f"phishin durations for {pin_ok}.")
     print(f"Cache now: {len(shows)} shows.")
 

@@ -12,8 +12,8 @@
 #          the frontend repo checked out next to the engine, node installed.
 set -euo pipefail
 
-CUTOFF="${1:-$(date +%F)}"
-YEAR="${2:-2026}"
+CUTOFF="${1:-$(date -u +%F)}"   # UTC, matching the cloud workflow's clock
+YEAR="${2:-$(date -u +%Y)}"
 ENGINE="$(cd "$(dirname "$0")/.." && pwd)"
 FRONTEND="${FRONTEND_DIR:-$ENGINE/../phish-setlist-predictor}"
 PY="$ENGINE/.venv/bin/python"
@@ -24,14 +24,17 @@ echo "== 1/6  Ingest actuals for $YEAR (idempotent) =="
 echo "== 2/6  Sync the frontend to main + snapshot the live predictions =="
 git -C "$FRONTEND" checkout main
 git -C "$FRONTEND" pull --ff-only origin main
-cp "$FRONTEND/prediction_data.json" /tmp/roll_live_prev.json
+# Freeze source = what is actually DEPLOYED (origin/main), never the working
+# tree: a half-failed previous roll must not poison the next day's freeze.
+LIVE_PREV="$(mktemp /tmp/roll_live_prev.XXXXXX.json)"
+git -C "$FRONTEND" show origin/main:prediction_data.json > "$LIVE_PREV"
 
 echo "== 3/6  Rolling export, as of the next unplayed show (cutoff $CUTOFF) =="
 ROLL_AS_OF="$CUTOFF" "$PY" "$ENGINE/export_json.py"
 
-echo "== 4/6  Freeze played shows (<= $CUTOFF) back to their locked calls =="
+echo "== 4/6  Freeze played shows (< $CUTOFF) back to their locked calls =="
 "$PY" "$ENGINE/scripts/freeze_played.py" \
-  "$ENGINE/prediction_data.json" /tmp/roll_live_prev.json "$CUTOFF" "$ENGINE/prediction_data.json"
+  "$ENGINE/prediction_data.json" "$LIVE_PREV" "$CUTOFF" "$ENGINE/prediction_data.json"
 
 echo "== 5/6  Regenerate the frontend data (trained TS + full pick-sheet catalog) =="
 cp "$ENGINE/prediction_data.json" "$FRONTEND/prediction_data.json"
@@ -55,6 +58,8 @@ Automated rolling re-prediction: upcoming shows reflect what has been
 played through $CUTOFF; played/locked shows stay frozen.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+  # A human push during the roll shouldn't lose the day's predictions.
+  git pull --rebase origin main
   git push origin HEAD:main
   echo "Pushed — Vercel is deploying."
 fi

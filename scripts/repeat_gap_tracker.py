@@ -30,12 +30,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "phish_engine", "data", "cache", "setlists.json")
 DEFAULT_OUT = os.path.join(ROOT, "phish_engine", "data", "repeat_gaps.json")
 
-# Keep the guardrail window in sync with the engine rather than hardcoding it.
+# Keep the guardrail windows in sync with the engine rather than hardcoding.
 try:
     sys.path.insert(0, ROOT)
-    from phish_engine.predictor import RECENT_NO_REPEAT
+    from phish_engine.predictor import RECENT_NO_REPEAT, VARIETY_MAX_DAYS
 except Exception:
     RECENT_NO_REPEAT = 3
+    VARIETY_MAX_DAYS = 14
 
 
 def _phish_entries(raw: dict) -> list[dict]:
@@ -86,6 +87,12 @@ def build_report(year: int, tour_arg: str | None) -> dict:
         played_at[slug].add(idx_of[e["showdate"]])
         name_of.setdefault(slug, e.get("song", slug))
 
+    def days_between(d1: str, d2: str) -> int:
+        from datetime import date
+        a = date(*map(int, d1.split("-")))
+        b = date(*map(int, d2.split("-")))
+        return (b - a).days
+
     songs = []
     gap_hist = Counter()
     inside_window = []
@@ -101,10 +108,15 @@ def build_report(year: int, tour_arg: str | None) -> dict:
             "min_gap": min(gaps) if gaps else None,
         }
         songs.append(rec)
-        for g in gaps:
+        for k, g in enumerate(gaps):
             gap_hist[g] += 1
-            if g <= RECENT_NO_REPEAT:
-                inside_window.append({"slug": slug, "name": name_of[slug], "gap": g})
+            # Mirror the engine exactly: the hard window is show-index based
+            # AND calendar-gated, so a "gap 1" spanning a multi-week tour
+            # break is not a guardrail false-positive.
+            cal_days = days_between(dates[order[k]], dates[order[k + 1]])
+            if g <= RECENT_NO_REPEAT and cal_days <= VARIETY_MAX_DAYS:
+                inside_window.append(
+                    {"slug": slug, "name": name_of[slug], "gap": g, "days": cal_days})
 
     repeated = sorted(
         [s for s in songs if s["plays"] >= 2],
@@ -139,7 +151,7 @@ def print_summary(r: dict) -> None:
         print(f"  ⚠ {len(r['inside_window'])} real repeat(s) inside the RECENT_NO_REPEAT={win} window "
               f"(guardrail would block these):")
         for x in r["inside_window"]:
-            print(f"      gap {x['gap']}  {x['name']}")
+            print(f"      gap {x['gap']} ({x.get('days', '?')}d)  {x['name']}")
     else:
         print(f"  ✓ no real repeat fell inside the RECENT_NO_REPEAT={win} window")
     top = r["repeated_songs"][:8]
@@ -150,8 +162,10 @@ def print_summary(r: dict) -> None:
 
 
 def main() -> int:
+    import datetime
     ap = argparse.ArgumentParser()
-    ap.add_argument("--year", type=int, default=2026)
+    ap.add_argument("--year", type=int, default=datetime.datetime.now(datetime.timezone.utc).year,
+                    help="tour year (default: current UTC year)")
     ap.add_argument("--tour", default=None, help="tourid or name substring; default = active tour")
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--quiet", action="store_true")
@@ -162,7 +176,9 @@ def main() -> int:
     except Exception as exc:  # never break the pipeline over the tracker
         report = {"error": f"{type(exc).__name__}: {exc}"}
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    out_dir = os.path.dirname(args.out)
+    if out_dir:  # a bare filename has no directory to create
+        os.makedirs(out_dir, exist_ok=True)
     with open(args.out, "w") as f:
         json.dump(report, f, indent=2)
     if not args.quiet:
