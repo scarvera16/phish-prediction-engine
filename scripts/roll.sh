@@ -46,9 +46,16 @@ echo "== Repeat-gap tracker (validates the RECENT_NO_REPEAT window) =="
 "$PY" "$ENGINE/scripts/repeat_gap_tracker.py" --year "$YEAR" \
   --out "$FRONTEND/repeat_gaps.json" || echo "  (tracker failed — continuing)"
 
+# Keep the frontend's engine-cache seed fresh (the cloud workflow reads it),
+# matching what roll.yml commits back after its own ingest.
+cp "$ENGINE/phish_engine/data/cache/shows.json" \
+   "$ENGINE/phish_engine/data/cache/setlists.json" \
+   "$ENGINE/phish_engine/data/cache/phishin_tracks.json" \
+   "$FRONTEND/engine-cache/" 2>/dev/null || true
+
 echo "== 6/6  Ship if anything changed =="
 cd "$FRONTEND"
-git add src/lib/prediction-data.ts prediction_data.json repeat_gaps.json
+git add src/lib/prediction-data.ts prediction_data.json repeat_gaps.json engine-cache
 if git diff --cached --quiet; then
   echo "No prediction change — nothing to deploy."
 else
