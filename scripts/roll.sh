@@ -26,7 +26,8 @@ git -C "$FRONTEND" checkout main
 git -C "$FRONTEND" pull --ff-only origin main
 # Freeze source = what is actually DEPLOYED (origin/main), never the working
 # tree: a half-failed previous roll must not poison the next day's freeze.
-LIVE_PREV="$(mktemp /tmp/roll_live_prev.XXXXXX.json)"
+# (No suffix on the template: BSD mktemp only substitutes trailing X's.)
+LIVE_PREV="$(mktemp /tmp/roll_live_prev.XXXXXX)"
 git -C "$FRONTEND" show origin/main:prediction_data.json > "$LIVE_PREV"
 
 echo "== 3/6  Rolling export, as of the next unplayed show (cutoff $CUTOFF) =="
