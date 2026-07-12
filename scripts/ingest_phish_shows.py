@@ -135,14 +135,27 @@ def main() -> None:
               f"{sum(1 for d in by_date if d in refreshed)} refreshed")
         time.sleep(0.3)
 
-    if not new_dates and not refreshed:
+    # phish.in publishes hours after phish.net, so the first ingest of a show
+    # often misses its durations. Retry recent dates that have a setlist but
+    # no phish.in tracks, or the jam-duration signal for that show is silently
+    # lost forever. Only the last 30 days: an older hole is a show phish.in
+    # will never publish, not a lag (retrying it forever just 404s daily).
+    from datetime import date, timedelta
+    pin_floor = (date.today() - timedelta(days=30)).isoformat()
+    pin_missing = [dt for dt in sorted(setlists)
+                   if dt >= pin_floor
+                   and dt[:4] in {str(y) for y in years}
+                   and not phishin.get(dt, {}).get("tracks")
+                   and dt not in new_dates and dt not in refreshed]
+
+    if not new_dates and not refreshed and not pin_missing:
         print("Cache already current. Nothing to add.")
         return
 
     # Phish.in durations for the new dates (best-effort; jam-chart signal
     # works without them, durations only sharpen the outlier component).
     pin_ok = 0
-    for dt in new_dates + refreshed:
+    for dt in new_dates + refreshed + pin_missing:
         try:
             d = get(f"https://phish.in/api/v2/shows/{dt}", timeout=30)
             tracks = [{"slug": t.get("slug", ""), "duration": t.get("duration", 0)}
@@ -161,8 +174,8 @@ def main() -> None:
     (CACHE / "phishin_tracks.json").write_text(json.dumps(phishin, indent=2))
 
     span = f" ({new_dates[0]} .. {new_dates[-1]})" if new_dates else ""
-    print(f"\nAdded {len(new_dates)} shows{span}, refreshed {len(refreshed)}; "
-          f"phishin durations for {pin_ok}.")
+    print(f"\nAdded {len(new_dates)} shows{span}, refreshed {len(refreshed)}, "
+          f"retried {len(pin_missing)} phish.in gaps; durations for {pin_ok}.")
     print(f"Cache now: {len(shows)} shows.")
 
 
