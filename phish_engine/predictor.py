@@ -124,6 +124,8 @@ def predict_show(
     set1_size: int = 11,
     set2_size: int = 7,
     enc_size: int = 2,
+    set1_budget_min: float | None = None,
+    set2_budget_min: float | None = None,
 ) -> dict:
     """
     Predict a full show setlist.
@@ -140,6 +142,12 @@ def predict_show(
     weights                 : ScoringWeights or legacy dict
     top_k                   : return top-k candidates per slot
     set1_size, set2_size, enc_size : target song counts
+    set1_budget_min, set2_budget_min : optional duration budgets (minutes).
+        When set, the set is filled until its expected runtime (sum of each
+        pick's avg_duration_min) reaches the budget, instead of to a fixed
+        song count. Jam-heavy picks then produce shorter sets, matching how
+        real sets work: the ~80 minutes is fixed, the song count is not.
+        None (default) keeps the fixed-count behaviour.
 
     Returns
     -------
@@ -204,14 +212,37 @@ def predict_show(
 
     setlist = {"set1": [], "set2": [], "encore": []}
 
+    def _dur(sid: str) -> float:
+        """Expected runtime of a song, minutes (catalog median; 5 if unknown)."""
+        try:
+            d = float(songs_df.loc[sid, "avg_duration_min"])
+            return d if d > 0 else 5.0
+        except (KeyError, ValueError):
+            return 5.0
+
+    def _set_minutes(key: str) -> float:
+        return sum(_dur(p["song_id"]) for p in setlist[key])
+
+    # Leave room for a closer when filling a budgeted set body.
+    CLOSER_ALLOWANCE_MIN = 7.0
+    MAX_SET_SONGS = 20  # hard cap so a degenerate catalog can't loop forever
+
     # -- SET 1 --
     openers = _pick("show_opener", top_k)
     setlist["set1"] += _commit(openers, 1)
 
-    s1_body_n = set1_size - 2
-    for _ in range(s1_body_n):
-        picks = _pick("s1_body", top_k)
-        setlist["set1"] += _commit(picks, 1)
+    if set1_budget_min is not None:
+        while (_set_minutes("set1") + CLOSER_ALLOWANCE_MIN < set1_budget_min
+               and len(setlist["set1"]) < MAX_SET_SONGS):
+            picks = _pick("s1_body", top_k)
+            if not picks:
+                break
+            setlist["set1"] += _commit(picks, 1)
+    else:
+        s1_body_n = set1_size - 2
+        for _ in range(s1_body_n):
+            picks = _pick("s1_body", top_k)
+            setlist["set1"] += _commit(picks, 1)
 
     s1_closers = _pick("s1_closer", top_k)
     setlist["set1"] += _commit(s1_closers, 1)
@@ -247,13 +278,21 @@ def predict_show(
                 })
                 chosen_show.append(seq_id)
 
-    while len(setlist["set2"]) < set2_size - 1:
-        picks = _pick("s2_body", top_k)
-        if not picks:
-            # Candidate pool exhausted (heavy exclusions) — ship a shorter
-            # set rather than spin forever in an unattended roll.
-            break
-        setlist["set2"] += _commit(picks, 1)
+    if set2_budget_min is not None:
+        while (_set_minutes("set2") + CLOSER_ALLOWANCE_MIN < set2_budget_min
+               and len(setlist["set2"]) < MAX_SET_SONGS):
+            picks = _pick("s2_body", top_k)
+            if not picks:
+                break
+            setlist["set2"] += _commit(picks, 1)
+    else:
+        while len(setlist["set2"]) < set2_size - 1:
+            picks = _pick("s2_body", top_k)
+            if not picks:
+                # Candidate pool exhausted (heavy exclusions) — ship a shorter
+                # set rather than spin forever in an unattended roll.
+                break
+            setlist["set2"] += _commit(picks, 1)
 
     s2_closers = _pick("s2_closer", top_k)
     setlist["set2"] += _commit(s2_closers, 1)
