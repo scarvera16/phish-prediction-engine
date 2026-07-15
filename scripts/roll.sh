@@ -41,7 +41,8 @@ echo "== 5/6  Regenerate the frontend data (trained TS + full pick-sheet catalog
 cp "$ENGINE/prediction_data.json" "$FRONTEND/prediction_data.json"
 ( cd "$FRONTEND" \
   && python3 scripts/json_to_ts.py \
-  && node scripts/backfill-catalog.mjs )
+  && node scripts/backfill-catalog.mjs \
+  && node scripts/build-jam-watch.mjs )
 
 echo "== Repeat-gap tracker (validates the RECENT_NO_REPEAT window) =="
 "$PY" "$ENGINE/scripts/repeat_gap_tracker.py" --year "$YEAR" \
@@ -56,7 +57,7 @@ cp "$ENGINE/phish_engine/data/cache/shows.json" \
 
 echo "== 6/6  Ship if anything changed =="
 cd "$FRONTEND"
-git add src/lib/prediction-data.ts prediction_data.json repeat_gaps.json engine-cache
+git add src/lib/prediction-data.ts src/lib/jam-watch-data.ts prediction_data.json repeat_gaps.json engine-cache
 if git diff --cached --quiet; then
   echo "No prediction change — nothing to deploy."
 else
