@@ -57,7 +57,7 @@ cp "$ENGINE/phish_engine/data/cache/shows.json" \
 
 echo "== 6/6  Ship if anything changed =="
 cd "$FRONTEND"
-git add src/lib/prediction-data.ts src/lib/jam-watch-data.ts prediction_data.json repeat_gaps.json engine-cache
+git add src/lib/prediction-data.ts src/lib/jam-watch-data.ts src/lib/tour-played-data.ts prediction_data.json repeat_gaps.json engine-cache
 if git diff --cached --quiet; then
   echo "No prediction change — nothing to deploy."
 else
@@ -68,7 +68,7 @@ played through $CUTOFF; played/locked shows stay frozen.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   # A human push during the roll shouldn't lose the day's predictions.
-  git pull --rebase origin main
+  git pull --rebase --autostash origin main
   git push origin HEAD:main
   echo "Pushed — Vercel is deploying."
 fi
