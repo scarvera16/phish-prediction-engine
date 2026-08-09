@@ -318,14 +318,17 @@ def main():
                 sid2 = _pn_slug_to_song_id(_canon_pin(_t["slug"]))
                 if sid2:
                     _pin_durs.setdefault(sid2, []).append(_t["duration"] / 60000)
-    _jamcharted: set[str] = set()
+    # First modern-era jam-chart DATE per song (immutable history), so scoring
+    # can judge "never jammed as of night X" correctly no matter when it re-runs.
+    _first_jam: dict[str, str] = {}
     with open(f"{DATA_DIR}/setlists.json") as _sf2:
-        for _es in json.load(_sf2).values():
+        for _d2, _es in json.load(_sf2).items():
             for _e in _es:
                 if str(_e.get("artistid")) == "1" and _e.get("isjamchart"):
                     sid2 = _pn_slug_to_song_id(_e.get("slug", ""))
-                    if sid2:
-                        _jamcharted.add(sid2)
+                    if sid2 and (sid2 not in _first_jam or _d2 < _first_jam[sid2]):
+                        _first_jam[sid2] = _d2
+    _jamcharted = set(_first_jam)
 
     # Song catalog with cluster + feature data
     pca_index = list(songs_with_clusters.index)
@@ -361,6 +364,7 @@ def main():
             "never_jammed":    bool(sid not in _jamcharted
                                     and len(_pin_durs.get(sid, [])) >= 3
                                     and sum(_pin_durs[sid]) / len(_pin_durs[sid]) < 6.0),
+            "first_jam":       _first_jam.get(sid),
             **({"arch": arch_block} if arch_block else {}),
         }
 
