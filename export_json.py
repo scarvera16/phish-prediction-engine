@@ -62,6 +62,22 @@ SUMMER_2026 = [
     ("2026-09-06", "Dick's Sporting Goods Park"),
 ]
 
+# Fall 2026 — announced 2026-08-04, verified against phish.net. Selected via
+# TOUR=fall-26 (default stays summer until the frontend's ACTIVE_TOUR flips).
+FALL_2026 = [
+    ("2026-10-02", "Jim Whelan Boardwalk Hall"),
+    ("2026-10-03", "Jim Whelan Boardwalk Hall"),
+    ("2026-10-04", "Jim Whelan Boardwalk Hall"),
+    ("2026-10-06", "Allianz Amphitheater at Riverfront"),
+    ("2026-10-07", "Allianz Amphitheater at Riverfront"),
+    ("2026-10-09", "VyStar Veterans Memorial Arena"),
+    ("2026-10-10", "Orion Amphitheater"),
+    ("2026-10-11", "Orion Amphitheater"),
+]
+
+TOUR_LISTS = {"summer-26": SUMMER_2026, "fall-26": FALL_2026}
+ACTIVE_TOUR_LIST = TOUR_LISTS[os.environ.get("TOUR", "summer-26")]
+
 WEIGHTS = ScoringWeights(
     recency=0.05,
     gap_pressure=0.05,
@@ -151,8 +167,8 @@ def _name_clusters(songs_with_clusters: pd.DataFrame) -> dict:
 
 def main():
     # ── 0. Tour schedule ───────────────────────────────────────────────────────
-    show_dates  = [pd.Timestamp(d) for d, _ in SUMMER_2026]
-    show_venues = [v for _, v in SUMMER_2026]
+    show_dates  = [pd.Timestamp(d) for d, _ in ACTIVE_TOUR_LIST]
+    show_venues = [v for _, v in ACTIVE_TOUR_LIST]
     venue_types = [classify_venue(v) for v in show_venues]
     positions   = stand_positions(show_venues)
 
