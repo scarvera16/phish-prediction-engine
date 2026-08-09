@@ -299,6 +299,34 @@ def main():
     # Conditional Type-II architecture layer (venue/era/slot)
     arch_table = build_architecture_table(songs_df, shows_df, appearances_df, DATA_DIR)
 
+    # Jam Call inputs (docs/jam-call-spec.md in the frontend repo): per-song
+    # career average runtime from phish.in (sandwich legs folded into the base
+    # slug) and a "never jammed" flag = no modern-era jam-chart entry to date
+    # + short-average profile. Scoring re-checks the temporal version at score
+    # time; this flag drives pick-time UI (the 5x moonshot badge).
+    import re as _re
+    with open(f"{DATA_DIR}/phishin_tracks.json") as _pf:
+        _pin = json.load(_pf)
+    _pin_slugs = {t.get("slug") for sh in _pin.values() for t in sh.get("tracks", [])}
+    def _canon_pin(slug: str) -> str:
+        m = _re.fullmatch(r"(.+)-\d+", slug or "")
+        return m.group(1) if m and m.group(1) in _pin_slugs else (slug or "")
+    _pin_durs: dict[str, list[float]] = {}
+    for _sh in _pin.values():
+        for _t in _sh.get("tracks", []):
+            if _t.get("duration") and _t.get("slug"):
+                sid2 = _pn_slug_to_song_id(_canon_pin(_t["slug"]))
+                if sid2:
+                    _pin_durs.setdefault(sid2, []).append(_t["duration"] / 60000)
+    _jamcharted: set[str] = set()
+    with open(f"{DATA_DIR}/setlists.json") as _sf2:
+        for _es in json.load(_sf2).values():
+            for _e in _es:
+                if str(_e.get("artistid")) == "1" and _e.get("isjamchart"):
+                    sid2 = _pn_slug_to_song_id(_e.get("slug", ""))
+                    if sid2:
+                        _jamcharted.add(sid2)
+
     # Song catalog with cluster + feature data
     pca_index = list(songs_with_clusters.index)
     catalog = {}
@@ -328,6 +356,11 @@ def main():
             "pca_x":           round(float(pca_coords[pca_idx, 0]), 3),
             "pca_y":           round(float(pca_coords[pca_idx, 1]), 3),
             "position_stats":  position_stats.get(sid, {"s1_opener": 0, "s1_closer": 0, "s2_opener": 0, "s2_closer": 0, "encore_rate": 0}),
+            "pin_avg_min":     (round(sum(_pin_durs[sid]) / len(_pin_durs[sid]), 1)
+                                if len(_pin_durs.get(sid, [])) >= 3 else None),
+            "never_jammed":    bool(sid not in _jamcharted
+                                    and len(_pin_durs.get(sid, [])) >= 3
+                                    and sum(_pin_durs[sid]) / len(_pin_durs[sid]) < 6.0),
             **({"arch": arch_block} if arch_block else {}),
         }
 
