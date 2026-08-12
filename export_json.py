@@ -75,7 +75,17 @@ FALL_2026 = [
     ("2026-10-11", "Orion Amphitheater"),
 ]
 
-TOUR_LISTS = {"summer-26": SUMMER_2026, "fall-26": FALL_2026}
+# Riviera Maya 2027 — four nights, one venue, one stand: the stand-scoped
+# no-repeat covers the whole run (the Sphere case, but with real Moon Palace
+# history in the training window from the 2025 and 2026 Mexico runs).
+RIVIERA_2027 = [
+    ("2027-01-27", "Moon Palace"),
+    ("2027-01-28", "Moon Palace"),
+    ("2027-01-29", "Moon Palace"),
+    ("2027-01-30", "Moon Palace"),
+]
+
+TOUR_LISTS = {"summer-26": SUMMER_2026, "fall-26": FALL_2026, "riviera-27": RIVIERA_2027}
 ACTIVE_TOUR_LIST = TOUR_LISTS[os.environ.get("TOUR", "summer-26")]
 
 WEIGHTS = ScoringWeights(
