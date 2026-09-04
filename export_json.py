@@ -86,7 +86,12 @@ RIVIERA_2027 = [
 ]
 
 TOUR_LISTS = {"summer-26": SUMMER_2026, "fall-26": FALL_2026, "riviera-27": RIVIERA_2027}
-ACTIVE_TOUR_LIST = TOUR_LISTS[os.environ.get("TOUR", "summer-26")]
+# Display label per tour, exported as meta.venue (the frontend shows it as the
+# tour name). Keep in sync with TOURS[].name in the frontend's src/lib/tours.ts.
+TOUR_LABELS = {"summer-26": "Summer Tour 2026", "fall-26": "Fall Tour 2026", "riviera-27": "Riviera Maya 2027"}
+ACTIVE_TOUR = os.environ.get("TOUR", "summer-26")
+ACTIVE_TOUR_LIST = TOUR_LISTS[ACTIVE_TOUR]
+ACTIVE_TOUR_LABEL = TOUR_LABELS[ACTIVE_TOUR]
 
 WEIGHTS = ScoringWeights(
     recency=0.05,
@@ -540,7 +545,7 @@ def main():
     # ── 7. Assemble final JSON ────────────────────────────────────────────────
     export = {
         "meta": {
-            "venue": "Summer Tour 2026",
+            "venue": ACTIVE_TOUR_LABEL,
             "dates": f"{show_dates[0].strftime('%b %-d')} – {show_dates[-1].strftime('%b %-d, %Y')}",
             "total_catalog": len(songs_df),
             "total_predicted_unique": len(predicted_songs),
