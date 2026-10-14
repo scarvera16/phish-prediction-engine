@@ -71,7 +71,7 @@ FALL_2026 = [
     ("2026-10-06", "Allianz Amphitheater at Riverfront"),
     ("2026-10-07", "Allianz Amphitheater at Riverfront"),
     ("2026-10-09", "VyStar Veterans Memorial Arena"),
-    ("2026-10-10", "Orion Amphitheater"),
+    ("2026-10-12", "Orion Amphitheater"),  # postponed from 10-10 (Hurricane Isaias), played 10-12
     ("2026-10-11", "Orion Amphitheater"),
 ]
 
