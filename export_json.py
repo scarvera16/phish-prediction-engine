@@ -85,10 +85,20 @@ RIVIERA_2027 = [
     ("2027-01-30", "Moon Palace"),
 ]
 
-TOUR_LISTS = {"summer-26": SUMMER_2026, "fall-26": FALL_2026, "riviera-27": RIVIERA_2027}
+# New Year's Run 2026 — four nights at MSG, Dec 30 – Jan 2 (one stand; starts
+# the 30th, not the 28th, because the Rangers have the Garden on the 29th).
+# Jan 2 is Phish's 100th MSG show. Verified against phish.net.
+NYE_2026 = [
+    ("2026-12-30", "Madison Square Garden"),
+    ("2026-12-31", "Madison Square Garden"),
+    ("2027-01-01", "Madison Square Garden"),
+    ("2027-01-02", "Madison Square Garden"),
+]
+
+TOUR_LISTS = {"summer-26": SUMMER_2026, "fall-26": FALL_2026, "nye-26": NYE_2026, "riviera-27": RIVIERA_2027}
 # Display label per tour, exported as meta.venue (the frontend shows it as the
 # tour name). Keep in sync with TOURS[].name in the frontend's src/lib/tours.ts.
-TOUR_LABELS = {"summer-26": "Summer Tour 2026", "fall-26": "Fall Tour 2026", "riviera-27": "Riviera Maya 2027"}
+TOUR_LABELS = {"summer-26": "Summer Tour 2026", "fall-26": "Fall Tour 2026", "nye-26": "New Year's Run 2026", "riviera-27": "Riviera Maya 2027"}
 ACTIVE_TOUR = os.environ.get("TOUR", "summer-26")
 ACTIVE_TOUR_LIST = TOUR_LISTS[ACTIVE_TOUR]
 ACTIVE_TOUR_LABEL = TOUR_LABELS[ACTIVE_TOUR]
