@@ -484,7 +484,12 @@ def main():
                     "is_pair":    False,
                     "pair_next":  None,
                 }
-                s2.insert(max(len(s2) - 1, 0), pin)
+                # The frontend splits a three-set bucket after the first 7
+                # songs (a normal set 2); within set 3 the Reprise-sized
+                # countdown lands third (positions 3-6 in 2012-2025), so the
+                # pin goes to bucket index 9 when the bucket is sized for
+                # three sets, else just ahead of the closer.
+                s2.insert(9 if len(s2) >= 12 else max(len(s2) - 1, 0), pin)
                 for i, e in enumerate(s2):
                     e["position"] = i + 1
                 show_songs.append("auld_lang_syne")
