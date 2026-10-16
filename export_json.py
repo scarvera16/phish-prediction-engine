@@ -456,6 +456,30 @@ def main():
                 show_songs.append(entry["song_id"])
             show_data["sets"][set_key] = set_data
 
+        # Calendar pin: Auld Lang Syne has played the midnight segment of every
+        # New Year's Eve show since 1989 (28 of 28 on phish.net), but a
+        # once-a-year song never clears the frequency bar, so the model never
+        # calls it. Pin it into the set-2 bucket on 12/31 (NYE shows have three
+        # sets; the frontend and scorer fold set 3 into set 2), ahead of the
+        # closer, unless the model already placed it.
+        if show_data["date"].endswith("-12-31") and "auld_lang_syne" in catalog:
+            s2 = show_data["sets"]["set2"]
+            if not any(e["song_id"] == "auld_lang_syne" for e in s2):
+                pin = {
+                    "song_id":    "auld_lang_syne",
+                    "name":       catalog["auld_lang_syne"]["name"],
+                    "position":   0,
+                    "slot":       "s2_body",
+                    "score":      1.0,
+                    "components": {"calendar": 1.0},
+                    "is_pair":    False,
+                    "pair_next":  None,
+                }
+                s2.insert(max(len(s2) - 1, 0), pin)
+                for i, e in enumerate(s2):
+                    e["position"] = i + 1
+                show_songs.append("auld_lang_syne")
+
         # Compute set-level stats
         for set_key in ("set1", "set2", "encore"):
             entries = show_data["sets"][set_key]
