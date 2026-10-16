@@ -336,9 +336,15 @@ def predict_multi_night_run(
     show_venues: list[str] | None = None,
     venue_types: list[str] | None = None,
     actual_setlists: dict[int, set[str]] | None = None,
+    set_sizes: list[tuple[int, int, int] | None] | None = None,
 ) -> list[dict]:
     """
     Predict a full multi-night run with stand-scoped no-repeat.
+
+    `set_sizes` optionally overrides (set1, set2, encore) song counts per show;
+    a None entry keeps the run-wide defaults. A New Year's Eve show plays three
+    sets, and the set-2 bucket stands in for sets 2 and 3 there, so it wants
+    roughly double the songs.
 
     `actual_setlists` maps a show index to the set of song_ids actually played
     there (for shows already completed in a rolling re-prediction). When a later
@@ -484,9 +490,9 @@ def predict_multi_night_run(
             soft_exclusions=soft_exclusions,
             slot_penalties=slot_pen,
             weights=weights,
-            set1_size=set1_size,
-            set2_size=set2_size,
-            enc_size=enc_size,
+            set1_size=(set_sizes[i] or (set1_size,))[0] if set_sizes else set1_size,
+            set2_size=(set_sizes[i] or (0, set2_size))[1] if set_sizes else set2_size,
+            enc_size=(set_sizes[i] or (0, 0, enc_size))[2] if set_sizes else enc_size,
         )
         pred["date"] = show_date
         pred["show_num"] = i + 1
