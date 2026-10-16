@@ -480,6 +480,32 @@ def main():
                     e["position"] = i + 1
                 show_songs.append("auld_lang_syne")
 
+        # Calendar pin: Tweezer Reprise closed the final encore of 6 of the last
+        # 12 New Year's runs (2012-2025), the next-best closer managed 2. The
+        # model's run-closer is whatever its last encore pick happens to be
+        # (27% confidence on a Wilson), so on an NYE run's final night the
+        # Reprise takes the encore-closer slot unless the model already has it.
+        if ACTIVE_TOUR.startswith("nye") and pred["show_num"] == len(ACTIVE_TOUR_LIST) \
+                and "tweeprise" in catalog:
+            enc = show_data["sets"]["encore"]
+            if not enc or enc[-1]["song_id"] != "tweeprise":
+                enc[:] = [e for e in enc if e["song_id"] != "tweeprise"]
+                if enc:
+                    enc.pop()  # the model's closer gives way to the tradition
+                enc.append({
+                    "song_id":    "tweeprise",
+                    "name":       catalog["tweeprise"]["name"],
+                    "position":   0,
+                    "slot":       "encore",
+                    "score":      0.5,
+                    "components": {"calendar": 0.5},
+                    "is_pair":    False,
+                    "pair_next":  None,
+                })
+                for i, e in enumerate(enc):
+                    e["position"] = i + 1
+                show_songs.append("tweeprise")
+
         # Compute set-level stats
         for set_key in ("set1", "set2", "encore"):
             entries = show_data["sets"][set_key]
