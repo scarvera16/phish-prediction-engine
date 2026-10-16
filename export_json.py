@@ -257,6 +257,14 @@ def main():
         print(f"  seeded actual setlists for {len(actual_setlists)} played show(s)")
 
     # ── 4. Predict the tour ────────────────────────────────────────────────────
+    # New Year's Eve is a three-set show: sets 2 and 3 together ran 13-22 songs
+    # (median 16) across the 2012-2025 runs, against ~8 for a normal set 2. The
+    # export's set-2 bucket covers both (the frontend and scorer fold set 3 into
+    # set 2), so give 12/31 a 14-song bucket; the Auld Lang Syne pin makes 15.
+    set_sizes = [
+        (11, 14, 2) if d.strftime("%m-%d") == "12-31" else None
+        for d in show_dates
+    ]
     predictions = predict_multi_night_run(
         show_dates=show_dates,
         venue_type=venue_types[0],
@@ -268,6 +276,7 @@ def main():
         show_venues=show_venues,
         venue_types=venue_types,
         actual_setlists=actual_setlists,
+        set_sizes=set_sizes,
     )
 
     # ── 5. Build export structure ─────────────────────────────────────────────
